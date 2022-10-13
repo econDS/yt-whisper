@@ -1,4 +1,6 @@
 from typing import Iterator, TextIO
+import os
+import subprocess
 
 
 def str2bool(string):
@@ -26,14 +28,16 @@ def format_timestamp(seconds: float, always_include_hours: bool = False, decimal
     hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else ""
     return f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
 
+
 def break_line(line: str, length: int):
-    break_index = min(len(line)//2, length) # split evenly or at maximum length
+    # split evenly or at maximum length
+    break_index = min(len(line)//2, length)
 
     # work backwards from that guess to split between words
     # if break_index <= 1, we've hit the beginning of the string and can't split
     while break_index > 1:
         if line[break_index - 1] == " ":
-            break # break at space
+            break  # break at space
         else:
             break_index -= 1
     if break_index > 1:
@@ -42,13 +46,15 @@ def break_line(line: str, length: int):
     else:
         return line
 
+
 def process_segment(segment: dict, line_length: int = 0):
     segment["text"] = segment["text"].strip()
     if line_length > 0 and len(segment["text"]) > line_length:
         # break at N characters as per Netflix guidelines
         segment["text"] = break_line(segment["text"], line_length)
-    
+
     return segment
+
 
 def write_vtt(transcript: Iterator[dict], file: TextIO, line_length: int = 0):
     print("WEBVTT\n", file=file)
@@ -76,6 +82,7 @@ def write_srt(transcript: Iterator[dict], file: TextIO, line_length: int = 0):
             flush=True,
         )
 
+
 def slugify(title):
     return "".join(c if c.isalnum() else "_" for c in title).rstrip("_")
 
@@ -84,3 +91,14 @@ def youtube_dl_log(d):
     if d['status'] == 'downloading':
         print("Downloading video: " +
               str(round(float(d['downloaded_bytes'])/float(d['total_bytes'])*100, 1))+"%")
+
+
+def convert_video_to_audio_ffmpeg(video_file, output_ext="mp3"):
+    """Converts video to audio directly using `ffmpeg` command
+    with the help of subprocess module"""
+    filename, ext = os.path.splitext(video_file)
+    output_filename = f"{filename}.{output_ext}"
+    subprocess.call(["ffmpeg", "-y", "-i", video_file, output_filename],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT)
+    return output_filename
