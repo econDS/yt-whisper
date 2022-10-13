@@ -6,6 +6,7 @@ This repository uses `youtube-dl` and [OpenAI's Whisper](https://openai.com/blog
 
 To get started, you'll need Python 3.7 or newer. Install the binary by running the following command:
 
+    pip uninstall yt-whisper -y
     pip install git+https://github.com/aichr/yt-whisper.git
 
 Need to install [`ffmpeg`](https://ffmpeg.org/) first.
