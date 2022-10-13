@@ -4,7 +4,7 @@ from whisper.tokenizer import LANGUAGES, TO_LANGUAGE_CODE
 import argparse
 import warnings
 import youtube_dl
-import utils
+from .utils import str2bool, slugify, write_vtt, write_srt, youtube_dl_log, convert_video_to_audio_ffmpeg
 import tempfile
 
 
@@ -19,7 +19,7 @@ def main():
                         choices=["vtt", "srt"], help="the subtitle format to output")
     parser.add_argument("--output_dir", "-o", type=str,
                         default=".", help="directory to save the outputs")
-    parser.add_argument("--verbose", type=utils.str2bool, default=False,
+    parser.add_argument("--verbose", type=str2bool, default=False,
                         help="Whether to print out the progress and debug messages")
     parser.add_argument("--task", type=str, default="transcribe", choices=[
                         "transcribe", "translate"], help="whether to perform X->X speech recognition ('transcribe') or X->English translation ('translate')")
@@ -50,17 +50,17 @@ def main():
         warnings.filterwarnings("default")
 
         if subtitles_format == 'vtt':
-            vtt_path = os.path.join(output_dir, f"{utils.slugify(title)}.vtt")
+            vtt_path = os.path.join(output_dir, f"{slugify(title)}.vtt")
             with open(vtt_path, 'w', encoding="utf-8") as vtt:
-                utils.write_vtt(result["segments"], file=vtt,
-                                line_length=break_lines)
+                write_vtt(result["segments"], file=vtt,
+                          line_length=break_lines)
 
             print("Saved VTT to", os.path.abspath(vtt_path))
         elif subtitles_format == "srt":
-            srt_path = os.path.join(output_dir, f"{utils.slugify(title)}.srt")
+            srt_path = os.path.join(output_dir, f"{slugify(title)}.srt")
             with open(srt_path, 'w', encoding="utf-8") as srt:
-                utils.write_srt(result["segments"], file=srt,
-                                line_length=break_lines)
+                write_srt(result["segments"], file=srt,
+                          line_length=break_lines)
             print("Saved SRT to", os.path.abspath(srt_path))
         else:
             print(f"subtitle type {subtitles_format} is wrong")
@@ -76,7 +76,7 @@ def get_audio(urls):
         'no_warnings': True,
         'format': 'bestaudio/best',
         "outtmpl": os.path.join(temp_dir, "%(id)s.%(ext)s"),
-        'progress_hooks': [utils.youtube_dl_log],
+        'progress_hooks': [youtube_dl_log],
         'postprocessors': [{
             'preferredcodec': 'mp3',
             'preferredquality': '192',
@@ -95,7 +95,7 @@ def get_audio(urls):
                 temp_dir, f"{result['id']}.mp3")
         elif os.path.exists(url):
             print(f"local file {url}")
-            output_mp3 = utils.convert_video_to_audio_ffmpeg(url)
+            output_mp3 = convert_video_to_audio_ffmpeg(url)
             paths[os.path.splitext(os.path.basename(url))[0]] = output_mp3
             assert os.path.exists(output_mp3)
             print(output_mp3)
