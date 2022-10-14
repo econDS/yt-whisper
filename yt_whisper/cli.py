@@ -14,9 +14,9 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("video", nargs="+", type=str,
                         help="video URLs to transcribe")
-    parser.add_argument("--model", default="small",
+    parser.add_argument("--model", default="base",
                         choices=whisper.available_models(), help="name of the Whisper model to use")
-    parser.add_argument("--format", default="srt",
+    parser.add_argument("--format", default="vtt",
                         choices=["vtt", "srt"], help="the subtitle format to output")
     parser.add_argument("--output_dir", "-o", type=str,
                         default=".", help="directory to save the outputs")
@@ -29,7 +29,7 @@ def main():
 
     parser.add_argument("--break-lines", type=int, default=0,
                         help="Whether to break lines into a bottom-heavy pyramid shape if line length exceeds N characters. 0 disables line breaking.")
-    parser.add_argument("--device", choices=("cuda", "cpu"),
+    parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda",
                         help="If cuda selected pytorch will use GPU otherwise CPU")
 
     args = parser.parse_args().__dict__
