@@ -4,7 +4,7 @@ from whisper.tokenizer import LANGUAGES, TO_LANGUAGE_CODE
 import argparse
 import warnings
 import yt_dlp
-from .utils import str2bool, slugify, write_vtt, write_srt, youtube_dl_log, convert_video_to_audio_ffmpeg
+from .utils import str2bool, slugify, write_vtt, write_srt, convert_video_to_audio_ffmpeg
 import tempfile
 import torch
 
