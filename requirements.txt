@@ -1,2 +1,3 @@
 yt-dlp
+gradio
 git+https://github.com/openai/whisper.git

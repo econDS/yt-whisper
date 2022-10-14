@@ -1,4 +1,5 @@
 dist
 .DS_Store
 *.egg-info
+.idea*
 yt_whisper/__pycache__
