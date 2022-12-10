@@ -11,7 +11,7 @@ To get started, you'll need Python 3.7 or newer. Install the binary by running t
 
 Need to install [`ffmpeg`](https://ffmpeg.org/) first.
 
-## Usage
+## Command Line Usage
 
 ```
 # Transcribe a local video
@@ -31,6 +31,13 @@ yt_whisper "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --task translate
 
 # Run the following to view all available options:
 yt_whisper --help
+```
+
+## UI Usage
+
+```
+# require install Gradio with: pip install gradio
+python ui.py
 ```
 
 ## License
