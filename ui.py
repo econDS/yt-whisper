@@ -27,7 +27,7 @@ def youtube_to_text(url, model_size):
     check_cuda()
     model = whisper.load_model(model_size)
     audios = get_audio([url])
-    for _, audio_path in audios.audios.values():
+    for _, audio_path in audios.items():
         result = model.transcribe(audio_path)
 
     return result['text']
