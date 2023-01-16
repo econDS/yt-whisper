@@ -34,6 +34,14 @@ def youtube_to_text(url, model_size):
 
 
 with gr.Blocks() as demo:
+    with gr.Tab("URL"):
+        youtube_button = gr.Button(transcribe_button_text)
+        youtube_button.click(youtube_to_text,
+                                inputs=[
+                                    gr.inputs.Textbox(label="Youtube URL"),
+                                    gr.inputs.Dropdown(choices=model_choices, label=label_model_size, default=default_model)
+                            ], outputs=gr.Textbox(label=transcribed_output_text))
+
     with gr.Tab("File"):
         file_button = gr.Button(transcribe_button_text)
         file_button.click(file_to_text,
@@ -42,12 +50,4 @@ with gr.Blocks() as demo:
                                 gr.inputs.Dropdown(choices=model_choices, label=label_model_size, default=default_model)
                             ],
                             outputs=gr.Textbox(label=transcribed_output_text))
-        
-    with gr.Tab("URL"):
-        youtube_button = gr.Button(transcribe_button_text)
-        youtube_button.click(youtube_to_text,
-                                inputs=[
-                                    gr.inputs.Textbox(label="Youtube URL"),
-                                    gr.inputs.Dropdown(choices=model_choices, label=label_model_size, default=default_model)
-                            ], outputs=gr.Textbox(label=transcribed_output_text))
 demo.launch()
