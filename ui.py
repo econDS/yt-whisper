@@ -5,7 +5,7 @@ from yt_whisper.cli import get_audio
 from whisper.tokenizer import TO_LANGUAGE_CODE
 
 default_model = "base"
-model_choices = ["tiny", "base", "small", "medium", "large"]
+model_choices = whisper.available_models()
 label_model_size = "Model Size"
 default_language = "Auto"
 language_choices = [default_language] + sorted([k.title() for k in TO_LANGUAGE_CODE.keys()])
