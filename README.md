@@ -8,6 +8,10 @@ To get started, you'll need Python 3.7 or newer. Install the binary by running t
 
     pip uninstall yt-whisper -y
     pip install git+https://github.com/econDS/yt-whisper.git
+    
+    or 
+    pip install -e .
+
 
 Need to install [`ffmpeg`](https://ffmpeg.org/) first.
 
