@@ -47,3 +47,11 @@ python ui.py
 ## License
 
 This script is open-source and licensed under the MIT License. For more details, check the [LICENSE](LICENSE) file.
+
+## Additional Notes
+
+- **Updating yt-dlp:**  
+  Since issues with yt-dlp can arise, it's a good idea to run:
+  ```bash
+  pip install --upgrade yt-dlp
+  ```
