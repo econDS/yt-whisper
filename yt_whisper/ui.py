@@ -5,6 +5,23 @@ import time
 from .storage import configure_storage
 
 
+def time_range_timestamps(start, end, multiple="0"):
+    """Combine the convenient single-range controls with the existing range option."""
+    from .options import parse_clip_timestamps, timestamp_seconds
+    start, end = (str(value or "").strip() for value in (start, end))
+    if not start and not end:
+        return multiple
+    if parse_clip_timestamps(multiple) != "0":
+        raise ValueError("Use either Start / End time or Multiple audio ranges; clear the other fields.")
+    start_seconds = timestamp_seconds(start or "0")
+    if not end:
+        return parse_clip_timestamps([start_seconds])
+    end_seconds = timestamp_seconds(end)
+    if end_seconds <= start_seconds:
+        raise ValueError("End time must be later than Start time.")
+    return [start_seconds, end_seconds]
+
+
 def output_directory(storage, subfolder):
     root = storage.outputs.resolve()
     relative = Path(subfolder or "")
@@ -40,7 +57,8 @@ def build_demo():
                    output_formats=None, preset="default", best_of=None,
                    compression_ratio_threshold="", logprob_threshold="", no_speech_threshold="",
                    highlight_words=False, max_line_width=None, max_line_count=None,
-                   max_words_per_line=None, break_lines=0, output_subfolder="", progress=gr.Progress()):
+                   max_words_per_line=None, break_lines=0, output_subfolder="",
+                   start_time="", end_time="", progress=gr.Progress()):
         if not source:
             raise gr.Error("Choose a file or enter a video URL.")
         try:
@@ -50,7 +68,8 @@ def build_demo():
             destination = output_directory(storage, output_subfolder)
             model, language = validate_selection(model, language, task)
             openai_options = supports_openai_options(model)
-            options = {} if not openai_options else dict(
+            clip_timestamps = time_range_timestamps(start_time, end_time, clip_timestamps)
+            options = {"clip_timestamps": clip_timestamps} if not openai_options else dict(
                 initial_prompt=initial_prompt, word_timestamps=word_timestamps,
                 carry_initial_prompt=carry_initial_prompt,
                 condition_on_previous_text=condition_on_previous_text,
@@ -93,17 +112,21 @@ def build_demo():
             raise gr.Error(str(exc)) from exc
 
     def transcribe_interactive(*args, progress=gr.Progress()):
-        request = args[:-3]
-        mode, line_length, subfolder = args[-3:]
+        if len(args) == 26:  # Existing UI callers may omit the new time fields.
+            args += ("", "")
+        request = args[:-5]
+        mode, line_length, subfolder, start_time, end_time = args[-5:]
         began = time.perf_counter()
         yield "", [], "Processing..."
         try:
             if mode == "Simple":
-                # Simple mode always uses defaults, even after editing Advanced settings.
-                text, files = transcribe(*request[:3], "transcribe", "auto", progress=progress)
+                # Only the visible model, language and time range apply in Simple mode.
+                text, files = transcribe(*request[:3], "transcribe", "auto",
+                                         start_time=start_time, end_time=end_time, progress=progress)
             elif mode == "Advanced":
                 text, files = transcribe(*request, break_lines=line_length,
-                                         output_subfolder=subfolder, progress=progress)
+                                         output_subfolder=subfolder, start_time=start_time,
+                                         end_time=end_time, progress=progress)
             else:
                 raise ValueError("Choose Simple or Advanced mode.")
             elapsed = time.perf_counter() - began
@@ -123,6 +146,18 @@ def build_demo():
                 [("Auto detect", "Auto")] + [(name.title(), code) for code, name in sorted(LANGUAGES.items(), key=lambda p: p[1])],
                 value=language, label="Spoken language",
             )
+        with gr.Accordion("Time range (optional)", open=False):
+            with gr.Row():
+                start_time = gr.Textbox(label="Start time", value="", placeholder="e.g. 10:00",
+                                        info="MM:SS, HH:MM:SS or seconds. Empty starts at the beginning.")
+                end_time = gr.Textbox(label="End time", value="", placeholder="e.g. 12:30",
+                                      info="Empty continues to the end. Leave both empty for the whole recording.")
+            gr.Markdown("Transcribes only this interval. Video URLs still download the full audio. "
+                        "Subtitle times refer to the original recording. "
+                        "Cuts through speech can produce repeated text; review the transcript.")
+            clips = gr.Textbox(label="Multiple audio ranges", value="0", visible=False,
+                               info="e.g. 10:00,12:30,30:00,31:00; seconds also work. "
+                                    "Leave Start / End time empty when using this field. A final start runs to the end.")
         with gr.Tab("File"):
             upload = gr.File(label="Audio or video file", type="filepath")
             file_button = gr.Button("Transcribe file", variant="primary")
@@ -153,8 +188,6 @@ def build_demo():
             with gr.Row():
                 silence = gr.Number(label="Skip suspected hallucinations after silence (seconds)", value=None,
                                     info="Requires word timestamps; leave empty to disable.")
-                clips = gr.Textbox(label="Audio ranges (seconds)", value="0",
-                                   info="start,end,start,end,...; a final start runs to the end.")
             with gr.Row():
                 beam = gr.Number(label="Beam size", value=None, precision=0,
                                  info="Positive integer; used only at temperature 0.")
@@ -194,8 +227,8 @@ def build_demo():
             enabled = value == "Advanced"
             return (gr.update(visible=enabled), gr.update(visible=enabled),
                     gr.update(visible=enabled and supports_openai_options(selected_model)),
-                    gr.update(visible=enabled), gr.update(visible=enabled))
-        visibility_outputs = [task_settings, model_guide, advanced, export_settings, system_info]
+                    gr.update(visible=enabled), gr.update(visible=enabled), gr.update(visible=enabled))
+        visibility_outputs = [task_settings, model_guide, advanced, export_settings, system_info, clips]
         mode.change(show_mode, [mode, model], visibility_outputs, api_name=False, queue=False)
         model.change(show_mode, [mode, model], visibility_outputs, api_name=False, queue=False)
         status = gr.Markdown("Ready")
@@ -211,7 +244,7 @@ def build_demo():
             legacy = gr.Button(visible=False)
             legacy.click(transcribe, [source] + settings, [output, downloads],
                          concurrency_limit=1, concurrency_id="transcription", api_name=api)
-            button.click(transcribe_interactive, [source] + settings + [mode, break_lines, subfolder],
+            button.click(transcribe_interactive, [source] + settings + [mode, break_lines, subfolder, start_time, end_time],
                          [output, downloads, status], show_progress="full",
                          concurrency_limit=1, concurrency_id="transcription", api_name=api + "_ui")
     return demo

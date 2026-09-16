@@ -51,7 +51,8 @@ def main(argv=None):
     parser.add_argument("--carry-initial-prompt", action="store_true")
     parser.add_argument("--condition-on-previous-text", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--hallucination-silence-threshold", type=float, default=None)
-    parser.add_argument("--clip-timestamps", default="0", help="Seconds: start,end,start,end,...")
+    parser.add_argument("--clip-timestamps", default="0",
+                        help="start,end,start,end,... in seconds, MM:SS or HH:MM:SS; e.g. 10:00,12:30")
     parser.add_argument("--beam-size", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--temperature", default=argparse.SUPPRESS, help="0..1 or comma-separated fallback sequence")
 

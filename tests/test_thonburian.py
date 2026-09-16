@@ -42,6 +42,7 @@ def hf_backend(monkeypatch):
     import torch
     import whisper
     calls = SimpleNamespace(processors=[], models=[], pipelines=[], inference=[],
+                            waveform_lengths=[],
                             raw={"text": "sample", "chunks": []}, before_load=lambda: None)
 
     def processor(source, **kwargs):
@@ -61,6 +62,7 @@ def hf_backend(monkeypatch):
 
         def __call__(self, waveform, **kwargs):
             calls.inference.append(kwargs)
+            calls.waveform_lengths.append(len(waveform))
             return copy.deepcopy(calls.raw)
 
     fake = SimpleNamespace(AutoProcessor=SimpleNamespace(from_pretrained=processor),
@@ -219,6 +221,96 @@ def test_openai_options_remain_unavailable(identifier):
             decoding_options(identifier, **opts)
 
 
+@pytest.fixture
+def range_audio(monkeypatch):
+    import whisper
+    probe = Mock(return_value=40.0)
+    decode = Mock(side_effect=lambda path, start, end: np.zeros(round((end - start) * 16000), dtype=np.float32))
+    monkeypatch.setattr("yt_whisper.engine.probe_audio_duration", probe)
+    monkeypatch.setattr("yt_whisper.engine.load_audio_range", decode)
+    monkeypatch.setattr(whisper, "load_audio", Mock(side_effect=AssertionError("Must not decode full audio for a range")))
+    return probe, decode
+
+
+@pytest.mark.parametrize("identifier", [*EXPECTED, "Thai_Thonburian"])
+@pytest.mark.parametrize("chunks", [None, [], [{"timestamp": (0, None), "text": "sample"}],
+                                    [{"timestamp": None, "text": ""}]])
+def test_thai_ranges_decode_only_requested_audio_and_keep_source_times(storage, hf_backend, range_audio, identifier, chunks):
+    probe, decode = range_audio
+    hf_backend.raw = {"text": "sample", "chunks": chunks}
+    engine = Transcriber(storage)
+    result = engine.transcribe("sample.wav", identifier, "Auto", device="cpu", clip_timestamps="0:10,0:12,0:20,0:23")
+    assert hf_backend.waveform_lengths == [32000, 48000]
+    assert [call.args[1:] for call in decode.call_args_list] == [(10, 12), (20, 23)]
+    assert len(hf_backend.models) == 1
+    assert result["text"] == "sample sample"
+    assert result["segments"] == [{"start": 10, "end": 12, "text": "sample"},
+                                  {"start": 20, "end": 23, "text": "sample"}]
+    assert result["transcribed_ranges"] == [{"start": 10, "end": 12}, {"start": 20, "end": 23}]
+    assert result["timestamp_basis"] == "source_audio_seconds"
+    assert result["decoding_options"] == {"clip_timestamps": [10, 12, 20, 23]}
+    assert result["model"] == canonical_model_id(identifier)
+    assert all(call == {"generate_kwargs": {"language": "th", "task": "transcribe"},
+                        "return_timestamps": True} for call in hf_backend.inference)
+    # A later request with different times reuses the same cached checkpoint.
+    engine.transcribe("sample.wav", identifier, device="cpu", clip_timestamps="0:01,0:02")
+    assert len(hf_backend.models) == 1 and hf_backend.waveform_lengths[-1] == 16000
+    files = save_result(result, AudioSource(Path("sample.wav"), "title", "source-id", "https://example.org/video"),
+                        storage.outputs, ("txt", "json", "srt", "vtt", "tsv", "jsonl"))
+    payload = json.loads(Path(files[1]).read_text(encoding="utf-8"))
+    assert payload["source"] == "https://example.org/video" and payload["source_id"] == "source-id"
+    assert payload["model_hf_repo"] == EXPECTED[canonical_model_id(identifier)]
+    assert payload["transcribed_ranges"] == result["transcribed_ranges"]
+    assert "00:00:10,000 --> 00:00:12,000" in Path(files[2]).read_text(encoding="utf-8")
+    assert "00:20.000 --> 00:23.000" in Path(files[3]).read_text(encoding="utf-8")
+    assert "20000\t23000" in Path(files[4]).read_text(encoding="utf-8")
+    assert json.loads(Path(files[5]).read_text(encoding="utf-8").splitlines()[-1])["start"] == 20
+
+
+@pytest.mark.parametrize("clips", ["0:38", "0:38,1:00"])
+def test_open_ended_or_overlong_range_stops_at_source_end(storage, hf_backend, range_audio, clips):
+    result = Transcriber(storage).transcribe("sample.wav", "thonburian-medium", device="cpu", clip_timestamps=clips)
+    assert result["transcribed_ranges"] == [{"start": 38, "end": 40}]
+    assert result["segments"] == [{"start": 38, "end": 40, "text": "sample"}]
+    assert hf_backend.waveform_lengths == [32000]
+
+
+@pytest.mark.parametrize("clips", ["0:40", "1:00,2:00", "0:01,0:02,0:40"])
+def test_every_range_is_checked_before_loading_or_decoding(storage, hf_backend, range_audio, clips):
+    with pytest.raises(ValueError, match="before the audio duration"):
+        Transcriber(storage).transcribe("sample.wav", "thonburian-medium", device="cpu", clip_timestamps=clips)
+    assert not hf_backend.models and not hf_backend.inference
+    range_audio[1].assert_not_called()
+
+
+def test_range_decode_failure_precedes_model_loading(storage, hf_backend, range_audio):
+    range_audio[1].side_effect = RuntimeError("Cannot decode audio range")
+    with pytest.raises(RuntimeError, match="Cannot decode audio range"):
+        Transcriber(storage).transcribe("sample.wav", "thonburian-medium", device="cpu", clip_timestamps="1,2")
+    assert not hf_backend.models and not hf_backend.inference
+
+
+def test_silent_range_keeps_empty_result_with_range_metadata(storage, hf_backend, range_audio):
+    hf_backend.raw = {"text": " ", "chunks": []}
+    result = Transcriber(storage).transcribe("sample.wav", "thonburian-medium", device="cpu", clip_timestamps="1,2")
+    assert result["text"] == "" and result["segments"] == []
+    assert result["transcribed_ranges"] == [{"start": 1, "end": 2}]
+
+
+def test_openai_ranges_still_use_upstream_inference(storage, monkeypatch):
+    import torch
+    import whisper
+    model = SimpleNamespace(transcribe=Mock(return_value={"text": "sample", "segments": []}))
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(whisper, "load_model", Mock(return_value=model))
+    crop = Mock(side_effect=AssertionError("OpenAI should keep its existing clip implementation"))
+    monkeypatch.setattr("yt_whisper.engine.load_audio_range", crop)
+    result = Transcriber(storage).transcribe("sample.wav", "base", device="cpu", clip_timestamps="0:10,0:12")
+    assert model.transcribe.call_args.kwargs["clip_timestamps"] == [10, 12]
+    assert result["decoding_options"]["clip_timestamps"] == [10, 12]
+    crop.assert_not_called()
+
+
 @pytest.mark.parametrize("spec", THONBURIAN_MODELS, ids=lambda s: s.id)
 @pytest.mark.parametrize("chunks", [[], None, [{"timestamp": (0, None), "text": "sample"}],
                                     [{"timestamp": None, "text": ""}]])
@@ -259,6 +351,7 @@ def test_ui_choices_legacy_config_and_optional_import(storage, monkeypatch):
         advanced = next(c["props"] for c in components if
                         c["props"].get("label", "").startswith("Transcription options"))
         assert advanced["visible"] is False
+        assert next(c["props"] for c in components if c["props"].get("label") == "Time range (optional)")["visible"]
         callback = next(f.fn for f in demo.fns.values() if f.fn.__name__ == "transcribe")
         with pytest.raises(Exception, match=r'pip install .*\[thai\]'):
             # Validate a legacy API model value without downloading/decoding audio.

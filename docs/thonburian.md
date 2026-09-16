@@ -45,6 +45,39 @@ for all Thonburian variants. Explicit unsupported CLI/tool options are rejected.
 Each process caches one model under its canonical ID, device and actual source.
 Aliases reuse that cache; switching variants or source releases the previous model.
 
+## Transcribe selected times
+
+All three variants support **Time range (optional)** in Simple/Advanced UI and
+`--clip-timestamps` in CLI. Enter Start `10:00` / End `12:30`; `HH:MM:SS` and
+numeric seconds also work. For several intervals, leave Start/End empty and use
+Advanced's **Multiple audio ranges**, for example `10:00,12:30,30:00,31:00`.
+
+```shell
+yt_whisper "audio.wav" --model thonburian-distill-large-v3 --language th --clip-timestamps "10:00,12:30" --format all
+```
+
+FFmpeg decodes each selected interval to 16 kHz mono in memory before model
+inference. Input seeking uses FFmpeg's default
+[accurate seeking during transcoding](https://ffmpeg.org/ffmpeg.html#Main-options).
+It does not write temporary clips or load the full waveform. The same cached
+model processes each interval independently. YouTube audio still downloads in
+full before selection. FFmpeg and ffprobe must be on PATH.
+
+An omitted End uses the source end; an End beyond the duration is capped there.
+A Start at/beyond the duration is rejected before loading any model, including
+when it appears in a later interval. All timestamps in exports refer to the
+original source. Missing final timestamps are filled within each selected interval,
+and no-chunk text is retained. JSON records actual `transcribed_ranges`, requested
+`decoding_options.clip_timestamps` and `timestamp_basis: source_audio_seconds`.
+These ranges are an application audio feature, not a Transformers decoding option.
+The JSON tool's existing named `ranges` schema remains unchanged.
+
+Selecting an interval removes speech context outside its boundaries. Real checks
+with cropped speech produced repeated text in Large-v3 and Distilled Large-v3,
+even when the audio range and exported timestamps were correct. Review the text,
+especially for cuts through a phrase. Export/integration checks do not establish
+recognition accuracy; the app does not silently remove repeated model output.
+
 ## Local and offline weights
 
 Supply a complete checkpoint directory with safetensors weights, `config.json`,

@@ -27,10 +27,11 @@ def ui(tmp_path, monkeypatch):
     @contextmanager
     def audio(source, storage):
         yield AudioSource(Path("sample.wav"), "sample", "id", str(source))
-    monkeypatch.setattr("yt_whisper.audio.prepare_audio", audio)
+    prepared = Mock(wraps=audio)
+    monkeypatch.setattr("yt_whisper.audio.prepare_audio", prepared)
     demo = build_demo()
     callbacks = {f.fn.__name__: f.fn for f in demo.fns.values()}
-    yield demo, callbacks, storage, calls
+    yield demo, callbacks, storage, calls, prepared
     demo.close()
 
 
@@ -41,7 +42,7 @@ def request():
 
 
 def test_simple_ignores_hidden_advanced_settings(ui):
-    demo, callbacks, storage, calls = ui
+    demo, callbacks, storage, calls, _ = ui
     args = request()
     args[3:5] = ["translate", "cuda"]
     args[5] = "hidden prompt"
@@ -63,7 +64,7 @@ def test_simple_ignores_hidden_advanced_settings(ui):
 
 
 def test_advanced_settings_formats_and_subfolder(ui):
-    _, callbacks, storage, calls = ui
+    _, callbacks, storage, calls, _ = ui
     args = request()
     args[4] = "cpu"
     args[5] = "Names"
@@ -80,14 +81,14 @@ def test_advanced_settings_formats_and_subfolder(ui):
 
 @pytest.mark.parametrize("line_length,folder", [(0, "../escape"), (-1, ""), (1.5, ""), (float("inf"), "")])
 def test_invalid_export_settings_fail_before_inference(ui, line_length, folder):
-    _, callbacks, _, calls = ui
+    _, callbacks, _, calls, _ = ui
     final = list(callbacks["transcribe_interactive"](*request(), "Advanced", line_length, folder))[-1]
     assert final[:2] == ("", []) and final[2].startswith("Failed after ")
     assert not calls
 
 
 def test_legacy_api_still_returns_two_outputs(ui):
-    _, callbacks, _, calls = ui
+    _, callbacks, _, calls, _ = ui
     response = callbacks["transcribe"](*request())
     assert len(response) == 2 and response[0] == "First second"
     assert len(response[1]) == 4 and len(calls) == 1
@@ -104,3 +105,80 @@ def test_copy_control_default_mode_and_thai_visibility(ui):
     for model in ("thonburian-medium", "thonburian-large-v3", "thonburian-distill-large-v3"):
         updates = callbacks["show_mode"]("Advanced", model)
         assert not updates[2]["visible"] and updates[0]["visible"] and updates[3]["visible"]
+
+
+@pytest.mark.parametrize("mode", ["Simple", "Advanced"])
+@pytest.mark.parametrize("start,end,expected", [
+    ("10:00", "12:30", [600, 750]), ("01:10:00", "", [4200]),
+    ("", "00:30.5", [0, 30.5]), ("", "", "0"),
+])
+def test_time_range_in_both_modes(ui, mode, start, end, expected):
+    _, callbacks, _, calls, prepared = ui
+    args = request()
+    if mode == "Simple":
+        args[10] = "19:00,20:00"  # Hidden Advanced ranges must still be ignored.
+    response = list(callbacks["transcribe_interactive"](*args, mode, 0, "", start, end))[-1]
+    assert response[2].startswith("Completed in ") and len(response[1]) == 4
+    assert calls[0][-1]["clip_timestamps"] == expected
+    prepared.assert_called_once()
+
+
+@pytest.mark.parametrize("start,end,multiple,message", [
+    ("10:60", "12:30", "0", "MM:SS"),
+    ("12:30", "10:00", "0", "later than"),
+    ("", "0:00", "0", "later than"),
+    ("ten", "", "0", "MM:SS"),
+    ("10:00", "12:30", "30:00,31:00", "either"),
+])
+@pytest.mark.parametrize("model", ["base", "thonburian-medium"])
+def test_bad_or_conflicting_ranges_fail_before_download(ui, start, end, multiple, message, model):
+    _, callbacks, _, calls, prepared = ui
+    args = request()
+    args[1:3] = [model, "Auto"]
+    args[10] = multiple
+    response = list(callbacks["transcribe_interactive"](*args, "Advanced", 0, "", start, end))[-1]
+    assert response[:2] == ("", []) and response[2].startswith("Failed after ")
+    assert message in response[2]
+    assert not calls
+    prepared.assert_not_called()
+
+
+@pytest.mark.parametrize("model", ["Thai_Thonburian", "thonburian-medium",
+                                    "thonburian-large-v3", "thonburian-distill-large-v3"])
+@pytest.mark.parametrize("mode", ["Simple", "Advanced"])
+def test_time_range_for_thai_reaches_engine(ui, model, mode):
+    _, callbacks, _, calls, prepared = ui
+    args = request()
+    args[0] = "https://example.org/video"
+    args[1:3] = [model, "Auto"]
+    response = list(callbacks["transcribe_interactive"](*args, mode, 0, "", "10:00", "12:30"))[-1]
+    assert response[2].startswith("Completed in ") and len(response[1]) == 4
+    assert calls[0][1] == "th" and calls[0][-1]["clip_timestamps"] == [600, 750]
+    prepared.assert_called_once()
+    assert prepared.call_args.args[0] == args[0]
+
+
+@pytest.mark.parametrize("model", ["base", "thonburian-medium", "thonburian-large-v3", "thonburian-distill-large-v3"])
+def test_multiple_clock_ranges_work_without_single_range(ui, model):
+    _, callbacks, _, calls, _ = ui
+    args = request()
+    args[1:3] = [model, "Auto"]
+    args[10] = "10:00,12:30,30:00,31:00"
+    response = list(callbacks["transcribe_interactive"](*args, "Advanced", 0, "", "", ""))[-1]
+    assert response[2].startswith("Completed in ")
+    assert calls[0][-1]["clip_timestamps"] == [600, 750, 1800, 1860]
+
+
+def test_time_controls_and_model_switch(ui):
+    demo, callbacks, *_ = ui
+    props = {c["id"]: c["props"] for c in demo.config["components"]}
+    for api in ("transcribe_url_ui", "transcribe_file_ui"):
+        event = next(d for d in demo.config["dependencies"] if d.get("api_name") == api)
+        assert [props[i]["label"] for i in event["inputs"][-2:]] == ["Start time", "End time"]
+        assert all(props[i]["value"] == "" for i in event["inputs"][-2:])
+    assert next(p for p in props.values() if p.get("label") == "Time range (optional)")["visible"]
+    time_inputs = {i for i, p in props.items() if p.get("label") in ("Start time", "End time")}
+    assert all(not time_inputs.intersection(d["outputs"]) for d in demo.config["dependencies"])
+    for model in ("Thai_Thonburian", "thonburian-medium", "thonburian-large-v3", "thonburian-distill-large-v3"):
+        updates = callbacks["show_mode"]("Advanced", model)
+        assert not updates[2]["visible"] and updates[-1]["visible"]

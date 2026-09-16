@@ -1,5 +1,6 @@
 """Validate decoding options identically for CLI, UI and direct callers."""
 import math
+import re
 from .models import supports_openai_options
 
 DEFAULTS = {
@@ -36,6 +37,41 @@ def numbers(value, label):
     return values
 
 
+def timestamp_seconds(value):
+    """Accept seconds, MM:SS or HH:MM:SS, including fractional seconds."""
+    message = "Time must be non-negative seconds, MM:SS or HH:MM:SS (for example 10:00 or 01:10:00)."
+    try:
+        if isinstance(value, bool):
+            raise ValueError(message)
+        if isinstance(value, str) and ":" in value:
+            value = value.strip()
+            if not re.fullmatch(r"[0-9]+(?::[0-5]?[0-9]){1,2}(?:\.[0-9]+)?", value):
+                raise ValueError(message)
+            seconds = sum(float(part) * 60 ** index for index, part in enumerate(reversed(value.split(":"))))
+        else:
+            seconds = float(value)
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError(message)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(message) from exc
+    return seconds
+
+
+def parse_clip_timestamps(value):
+    value = value or "0"
+    values = value.split(",") if isinstance(value, str) else (
+        [value] if isinstance(value, (int, float)) else value)
+    try:
+        clip = [timestamp_seconds(item) for item in values]
+    except TypeError as exc:
+        raise ValueError("Clip timestamps must contain times separated by commas.") from exc
+    if not clip:
+        raise ValueError("Clip timestamps must contain at least one time.")
+    if any(b <= a for a, b in zip(clip, clip[1:])):
+        raise ValueError("Clip timestamps must increase: start,end,start,end,...")
+    return "0" if clip == [0.0] else clip
+
+
 def decoding_options(model_name, preset="default", **values):
     unknown = set(values) - set(DEFAULTS) - {"verbose"}
     if unknown:
@@ -58,10 +94,7 @@ def decoding_options(model_name, preset="default", **values):
         options["temperature"] = tuple(numbers(options["temperature"], "Temperature"))
         if any(x > 1 for x in options["temperature"]):
             raise ValueError("Temperature must be between 0 and 1.")
-    clip = numbers(options["clip_timestamps"] or "0", "Clip timestamps")
-    if any(b <= a for a, b in zip(clip, clip[1:])):
-        raise ValueError("Clip timestamps must increase: start,end,start,end,...")
-    options["clip_timestamps"] = "0" if clip == [0.0] else clip
+    options["clip_timestamps"] = parse_clip_timestamps(options["clip_timestamps"])
     for key in ("beam_size", "best_of"):
         value = options[key]
         if value is not None:
@@ -92,8 +125,12 @@ def decoding_options(model_name, preset="default", **values):
     if options["carry_initial_prompt"] and not options["initial_prompt"]:
         raise ValueError("Repeat prompt requires an initial prompt.")
     if not supports_openai_options(model_name):
-        changed = [key for key, default in DEFAULTS.items() if options[key] != default]
+        # Time ranges are applied to the audio by our engine, not to HF generation.
+        changed = [key for key, default in DEFAULTS.items() if key != "clip_timestamps" and options[key] != default]
         if changed:
             raise ValueError("These options are only supported by OpenAI Whisper: " + ", ".join(changed))
-        return {"verbose": options.get("verbose", False)}
+        thai = {"verbose": options.get("verbose", False)}
+        if options["clip_timestamps"] != "0":
+            thai["clip_timestamps"] = options["clip_timestamps"]
+        return thai
     return {key: value for key, value in options.items() if value is not None or key in THRESHOLDS}

@@ -98,6 +98,12 @@ The transcript has a Copy button and can be edited before copying. Downloaded fi
 retain the original output. Run status shows elapsed processing time, including
 model loading and saving; queue wait and browser upload are excluded.
 
+With any OpenAI or Thonburian Whisper model, open **Time range (optional)** in either mode and
+enter Start `10:00` / End `12:30`. `HH:MM:SS` and seconds also work; leave both
+empty for the whole recording. This limits inference, while URL audio still
+downloads in full. Thonburian decodes only the selected audio intervals before
+inference; subtitle times remain relative to the source. See [time ranges](docs/usage.md#transcribe-a-time-range).
+
 For later Windows sessions, `ytwhisper_ui.bat` opens
 `<data-root>/envs/py312/python.exe`. If you chose a custom data folder, set
 `YTW_DATA_DIR` to the same folder before launching it. The

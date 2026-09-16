@@ -124,23 +124,11 @@ def validate_request(raw, base_dir):
 
 
 def probe_audio(audio):
-    if not audio.is_file():
-        raise ToolError("input_error", f"Audio file does not exist: {audio}")
-    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
-    if not ffmpeg or not ffprobe:
-        raise ToolError("input_error", "FFmpeg and ffprobe must be available on PATH.")
+    from .audio import probe_audio_duration
     try:
-        run = subprocess.run([ffprobe, "-v", "error", "-show_entries",
-                              "format=duration:stream=codec_type,duration", "-of", "json", str(audio)],
-                             capture_output=True, text=True, encoding="utf-8", errors="replace", check=True)
-        data = json.loads(run.stdout)
-        stream = next(s for s in data["streams"] if s.get("codec_type") == "audio")
-        duration = float(stream.get("duration", data.get("format", {}).get("duration")))
-        if not math.isfinite(duration) or duration <= 0:
-            raise ValueError("Invalid audio duration")
-        return duration
-    except (OSError, subprocess.CalledProcessError, KeyError, TypeError, ValueError, StopIteration) as exc:
-        raise ToolError("input_error", f"Cannot read audio duration: {audio}") from exc
+        return probe_audio_duration(audio)
+    except (OSError, RuntimeError) as exc:
+        raise ToolError("input_error", str(exc)) from exc
 
 
 def extract_range(audio, destination, start, end):

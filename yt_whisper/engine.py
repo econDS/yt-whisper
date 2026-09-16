@@ -5,6 +5,7 @@ from pathlib import Path
 import threading
 import warnings
 
+from .audio import load_audio_range, probe_audio_duration
 from .models import LEGACY_THAI_MODEL, canonical_model_id, custom_model_spec, model_ids
 
 # Preserve imports of the original public constant.
@@ -119,6 +120,36 @@ class Transcriber:
         self._key = key
         return self._model
 
+    def _transcribe_thai_ranges(self, path, model_name, language, task, device, clips):
+        duration = probe_audio_duration(path)
+        ranges = []
+        # Validate every interval before decoding or loading any model.
+        for index in range(0, len(clips), 2):
+            start = clips[index]
+            if start >= duration:
+                raise ValueError(f"Start time {start:g} must be before the audio duration ({duration:g} seconds).")
+            end = min(clips[index + 1], duration) if index + 1 < len(clips) else duration
+            ranges.append((start, end))
+        texts, segments, actual_ranges = [], [], []
+        model = None
+        for start, end in ranges:
+            waveform = load_audio_range(path, start, end)
+            if model is None:
+                model = self._load(model_name, device)
+            raw = model(waveform, generate_kwargs={"task": task, "language": language}, return_timestamps=True)
+            clip_duration = min(len(waveform) / 16000.0, end - start)
+            text = raw["text"].strip()
+            if text:
+                texts.append(text)
+            for segment in thai_segments(raw.get("chunks"), clip_duration, text):
+                segment["start"] = round(start + segment["start"], 6)
+                segment["end"] = round(start + segment["end"], 6)
+                segments.append(segment)
+            actual_ranges.append({"start": start, "end": round(start + clip_duration, 6)})
+            del waveform
+        return {"text": " ".join(texts), "segments": segments, "language": language,
+                "transcribed_ranges": actual_ranges, "timestamp_basis": "source_audio_seconds"}, model
+
     def transcribe(self, path, model_name="base", language=None, task="transcribe", device="auto",
                    **options):
         import whisper
@@ -128,14 +159,18 @@ class Transcriber:
         options = decoding_options(model_name, **options)
         device = resolve_device(device)
         with self._lock:
-            model = self._load(model_name, device)
-            if spec:
+            if spec and "clip_timestamps" in options:
+                result, model = self._transcribe_thai_ranges(
+                    path, model_name, language, task, device, options["clip_timestamps"])
+            elif spec:
+                model = self._load(model_name, device)
                 generate = {"task": task, "language": language}
                 waveform = whisper.load_audio(str(path))
                 raw = model(waveform, generate_kwargs=generate, return_timestamps=True)
                 segments = thai_segments(raw.get("chunks", []), len(waveform) / 16000.0, raw["text"])
                 result = {"text": raw["text"].strip(), "segments": segments, "language": language}
             else:
+                model = self._load(model_name, device)
                 result = model.transcribe(str(path), language=language, task=task,
                                           fp16=device == "cuda", **options)
             result["model"] = "large-v3" if model_name == "large" else model_name

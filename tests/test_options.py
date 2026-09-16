@@ -1,6 +1,6 @@
 import json
 import pytest
-from yt_whisper.options import decoding_options
+from yt_whisper.options import decoding_options, timestamp_seconds
 from yt_whisper.results import save_result
 from yt_whisper.audio import AudioSource
 from pathlib import Path
@@ -32,6 +32,55 @@ def test_options_parse_fallback_and_ranges():
                             hallucination_silence_threshold=2)
     assert opts["temperature"] == (0, .2, .4)
     assert opts["clip_timestamps"] == [1, 3, 5]
+
+
+@pytest.mark.parametrize("value,seconds", [
+    ("10:00", 600), ("12:30", 750), ("01:10:00", 4200),
+    ("90:00", 5400), (" 1:02.5 ", 62.5), ("00:00:00.125", .125),
+    ("750", 750), (2.5, 2.5), ("0:00", 0),
+])
+def test_clock_time_and_seconds(value, seconds):
+    assert timestamp_seconds(value) == seconds
+
+
+@pytest.mark.parametrize("value", [
+    "10:60", "1:60:00", "1:02:99", "-1:00", "1.5:00", "1:2:3:4",
+    "10:", "ten minutes", "nan", "inf", -1, True,
+])
+def test_invalid_clock_time(value):
+    with pytest.raises(ValueError, match="MM:SS"):
+        timestamp_seconds(value)
+
+
+def test_clock_ranges_normalize_and_survive_engine_revalidation():
+    options = decoding_options("base", clip_timestamps="10:00,12:30,00:30:00,1860.5")
+    assert options["clip_timestamps"] == [600, 750, 1800, 1860.5]
+    assert decoding_options("base", **options) == options
+    assert decoding_options("base", clip_timestamps="10:00")["clip_timestamps"] == [600]
+    assert decoding_options("base", clip_timestamps="0:00")["clip_timestamps"] == "0"
+    for invalid in ("12:30,10:00", "10:00,600", "10:00,,12:30", "10:00,10:60"):
+        with pytest.raises(ValueError):
+            decoding_options("base", clip_timestamps=invalid)
+    thai = decoding_options("thonburian-medium", clip_timestamps="10:00,12:30")
+    assert thai == {"verbose": False, "clip_timestamps": [600, 750]}
+    assert decoding_options("thonburian-medium", **thai) == thai
+
+
+@pytest.mark.parametrize("model", ["base", "Thai_Thonburian", "thonburian-medium",
+                                    "thonburian-large-v3", "thonburian-distill-large-v3"])
+def test_cli_passes_clock_ranges_to_engine(monkeypatch, model):
+    from contextlib import contextmanager
+    from unittest.mock import Mock
+    from yt_whisper.cli import main
+    @contextmanager
+    def audio(*args):
+        yield AudioSource(Path("sample.wav"), "sample", "id", "sample.wav")
+    engine = Mock()
+    monkeypatch.setattr("yt_whisper.audio.prepare_audio", audio)
+    monkeypatch.setattr("yt_whisper.engine.Transcriber", Mock(return_value=engine))
+    monkeypatch.setattr("yt_whisper.results.save_result", Mock(return_value=[]))
+    assert main(["sample.wav", "--model", model, "--clip-timestamps", "10:00,12:30"]) == 0
+    assert engine.transcribe.call_args.kwargs["clip_timestamps"] == [600, 750]
 
 
 def test_thai_defaults_allowed_but_explicit_options_rejected():
@@ -135,7 +184,8 @@ def test_cli_new_settings_fail_before_fetch(monkeypatch):
     from yt_whisper.cli import main
     fetch = Mock()
     monkeypatch.setattr("yt_whisper.audio.prepare_audio", fetch)
-    for flags in (["--highlight-words"], ["--no-speech-threshold", "2"]):
+    for flags in (["--highlight-words"], ["--no-speech-threshold", "2"],
+                  ["--clip-timestamps", "10:60,12:30"], ["--clip-timestamps", "12:30,10:00"]):
         with pytest.raises(SystemExit) as exc:
             main(["https://example.org/video"] + flags)
         assert exc.value.code == 1

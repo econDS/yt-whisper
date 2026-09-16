@@ -59,10 +59,46 @@ Site restrictions and network availability can still affect downloads.
 
 ### Browser modes
 
-Simple mode uses the selected model/language with the default transcription
+Simple mode uses the selected model/language and optional time range with the default transcription
 settings and automatic device selection. Advanced settings are retained on screen
 when switching modes, but Simple does not apply them. Simple exports TXT, JSON,
 SRT and VTT to the configured outputs directory.
+
+### Transcribe a time range
+
+For OpenAI and all three Thonburian models, **Time range (optional)** is available in both Simple
+and Advanced mode. Enter **Start time** `10:00` and **End time** `12:30` to
+transcribe minutes 10 to 12:30. Accepted formats are `MM:SS`, `HH:MM:SS` and
+seconds; fractional seconds such as `01:02.5` also work. An empty Start begins at
+zero, an empty End continues to the end, and both empty select the whole recording.
+End must be later than Start.
+
+For several intervals, leave Start/End empty and use **Multiple audio ranges** in
+Advanced mode, for example `10:00,12:30,30:00,31:00`. The same formats work in CLI:
+
+```shell
+yt_whisper "https://www.youtube.com/watch?v=VIDEO_ID" --model turbo --language th --clip-timestamps "10:00,12:30" --format all
+yt_whisper "audio.wav" --model thonburian-distill-large-v3 --language th --clip-timestamps "10:00,12:30" --format all
+```
+
+These ranges reduce model inference work. URL audio is still downloaded in full.
+OpenAI Whisper prepares the full audio before decoding selected intervals.
+Thonburian uses FFmpeg/ffprobe to decode only the selected intervals into memory,
+then transcribes each independently with the same cached model. A missing End
+runs to the source end; an End beyond the duration is capped there. A Start at or
+beyond the duration fails before loading the model. No temporary clips are written.
+
+Subtitle timestamps remain relative to the original recording, including gaps
+between intervals. Thonburian JSON records the normalized requested times in
+`decoding_options.clip_timestamps`, actual intervals in `transcribed_ranges`, and
+`timestamp_basis: source_audio_seconds`. Boundary timestamps may still be estimated
+by the model/fallback. Switching models keeps the time selection. The JSON tool
+continues to use its separate named `ranges` interface for local files.
+Review text from cuts through speech: some Thonburian checkpoints produced repeated
+text in real cropped-audio checks. Correct range/timestamp handling does not
+guarantee recognition quality; see the [Thonburian timing notes](thonburian.md).
+
+### Other browser controls
 
 Advanced mode exposes task/device, all six output formats, OpenAI decoding and
 word-based subtitle controls, plus segment wrapping (`--break-lines`). The output
@@ -82,8 +118,9 @@ two-output `(text, files)` contract. UI events use separate endpoints ending in
 `_ui`, returning `(text, files, status)` with mode/export controls. Integrations
 should continue using the existing endpoints or the versioned JSON subprocess tool.
 
-CLI and UI expose these options for the OpenAI Whisper backend. The UI hides them
-for Thonburian; unsupported explicit CLI settings are rejected for that backend.
+Except for `--clip-timestamps`, these decoding controls require OpenAI Whisper.
+The UI hides the OpenAI decoding panel for Thonburian; unsupported explicit
+CLI settings are rejected for that backend. Time controls are shared by both.
 
 | Option | Purpose |
 | --- | --- |
@@ -92,7 +129,7 @@ for Thonburian; unsupported explicit CLI settings are rejected for that backend.
 | --word-timestamps | Include estimated word start/end times. |
 | --no-condition-on-previous-text | Disable previous-text context; useful to try if phrases repeat. |
 | --hallucination-silence-threshold | Positive silence threshold in seconds; requires word timestamps. |
-| --clip-timestamps | Ranges in seconds, such as 10,30,45,60; a final start runs to the end. |
+| --clip-timestamps | Ranges in seconds, MM:SS or HH:MM:SS, such as 10:00,12:30; a final start runs to the end. |
 | --preset | default (existing behavior) or official-cli decoding settings. |
 | --best-of | Positive candidate count at nonzero temperatures; ignored at temperature 0. |
 | --compression-ratio-threshold | Repetition fallback threshold, default 2.4; none disables it. |
