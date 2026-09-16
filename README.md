@@ -1,163 +1,174 @@
 # yt-whisper
 
-Local transcription of audio/video files and individual YouTube videos, using OpenAI Whisper or Thonburian Whisper. Windows + NVIDIA setup is included.
+Transcribe local audio/video files or a single YouTube video with Whisper.
+Use a browser UI, a command-line interface, or a JSON subprocess tool from another
+application. Transcription runs locally; model weights download on first use.
 
-## Windows: start the updated app
+Outputs: **TXT, JSON, SRT, VTT, TSV and JSONL**. Supports multilingual Whisper
+models and optional Thonburian Whisper for Thai.
 
-Double-click **ytwhisper_ui.bat** in this repository. The UI listens on `http://127.0.0.1:7860` (or the next free port) and is not shared publicly.
+## Choose how to use it
 
-The launcher uses `<data-root>/envs/py312/python.exe`; the default Windows data root is `E:\yt-whisper`.
-
-To install the tested environment again, run PowerShell from the repository:
-
-```powershell
-.\scripts\setup-windows.ps1
-```
-
-Prerequisites: Conda, an NVIDIA driver compatible with the CUDA 12.6 PyTorch wheel, FFmpeg in PATH, and Node.js >=22 in PATH for YouTube. The setup script accepts `-DataRoot` and `-CondaExecutable` to override its defaults. It sets installation temp, pip cache and Conda package cache before installing anything.
-
-The project requires Python >=3.11; the Windows setup script creates a Python 3.12 environment. Package dependencies are declared in `pyproject.toml`; `requirements-windows-py312.lock.txt` records the tested Windows versions.
-
-## Storage
-
-On Windows, the default data root is **E:\yt-whisper**. Set `YTW_DATA_DIR` before launching to choose another location. On other operating systems the default is `~/.local/share/yt-whisper`.
-
-| Data | Location under the data root |
+| Goal | Start here |
 | --- | --- |
-| New environment | `envs/py312` |
-| OpenAI model weights | `models/whisper` |
-| Local Thonburian model | `models/thonburian` |
-| Hugging Face / pip / Conda / other caches | `cache/` |
-| Downloads and Gradio uploads | `tmp/` |
-| Transcripts | `outputs/<title>-<unique-id>/` |
-| User preferences | `config/user_config.json` |
+| Upload a file or paste a URL in a browser | [Browser UI](#browser-ui) |
+| Transcribe files from a terminal | [Command line](#command-line) |
+| Call transcription from your own workflow | [JSON tool](#json-tool) |
 
-The application configures caches before importing ML/UI libraries. This is process-local; it does not change global Windows settings. Whisper always receives an explicit model directory. Each URL job owns a temporary directory that is removed on success or failure. Gradio upload cache is swept hourly for files older than 24 hours while the app is running.
+**Install first using one of the paths below.** A GPU and an API key are not
+required. GPU acceleration is optional; the bundled Windows setup script
+specifically targets NVIDIA CUDA.
 
-Local input files are decoded directly; no MP3 is written next to the source. Output directories are unique, so duplicate video titles and repeated runs do not overwrite earlier transcripts.
+## Requirements
 
+- **Python 3.12 recommended**; the package requires Python 3.11 or newer.
+- **FFmpeg and ffprobe** on PATH for audio/video processing.
+- **Node.js 22+ for YouTube URLs only.** Local files do not need Node.
+  This app enables Node in yt-dlp's Python API; see [yt-dlp's runtime documentation](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+- Disk space for the Python environment, selected model weights and working files.
+  Large models can require several GB for weights alone.
 
-## Model selection
+## Install
 
-- `base`: a small model for smoke tests.
-- `small`, `medium`, `large-v3`: multilingual models, with increasing memory requirements.
-- `turbo` / `large-v3-turbo`: available through the updated Whisper package; downloaded into E: only when selected if not already cached.
-- `Thai_Thonburian`: uses Transformers and the local `models/thonburian` directory when its config exists. Set `YTW_THAI_MODEL` to another local model directory if needed. Without a local model, the app uses `biodatlab/whisper-th-medium-combined` and downloads to the configured Hugging Face cache.
-
-The local Thonburian folder must include `model.safetensors`, config, generation config, tokenizer and feature extractor files. The app does not need a duplicate `pytorch_model.bin`. If a Thai segment lacks its ending timestamp, the clip duration is used so subtitle text is retained; review timing for publication.
-
-Only one model is retained by each running app process. Switching models releases its previous model; requests within the UI are serialized. Separate CLI/UI processes still consume memory independently.
-
-**Translate means translate speech into English.** Turbo is rejected for this task because it is not trained for translation. `.en` models force English. Auto language handles missing/empty values. CUDA falls back to CPU if unavailable.
-
-## CLI
-
-From PowerShell, without activating Conda:
-
-```powershell
-$py = 'E:\yt-whisper\envs\py312\python.exe'
-& $py -m yt_whisper.cli --doctor
-& $py -m yt_whisper.cli 'D:\audio\example.mp4' --model base --language th --format all
-& $py -m yt_whisper.cli 'https://www.youtube.com/watch?v=VIDEO_ID' --model small --language Auto
-& $py -m yt_whisper.cli 'D:\audio\example.wav' --model medium --task translate
-```
-
-Supported formats: TXT, JSON, SRT, VTT, TSV and JSONL; `--format all` writes all six. VTT remains the CLI default. JSON preserves segment details and records model, task, device and source. The UI returns text and download links for the selected formats.
-
-Basic CLI options: `--device auto|cuda|cpu`, `--output_dir`, `--break-lines`, `--initial-prompt`, `--word-timestamps`, `--verbose True|False`. Prompt and word-timestamp options are for OpenAI Whisper, not the Thonburian backend.
-
-Playlists are rejected before media downloading; a video URL with a playlist parameter processes only the selected video. YouTube availability is also affected by the site's restrictions and network conditions. The app does not automatically read browser cookies or bypass account checks.
-
-## Other installations
-
-Install a suitable PyTorch wheel first using the [official installer](https://pytorch.org/get-started/locally/), then:
+Get the source first:
 
 ```shell
-python -m pip install -e ".[ui,thai]"
+git clone https://github.com/econDS/yt-whisper.git
+cd yt-whisper
+```
+
+### Windows with an NVIDIA GPU and Conda
+
+The helper installs Python 3.12, CUDA 12.6 PyTorch and the app's UI/Thai/development
+dependencies using the tested Windows constraints.
+
+Run in PowerShell from the cloned repository. **Choose a data folder on a drive
+that exists and has enough space; E: is only the default.**
+
+```powershell
+$env:YTW_DATA_DIR = 'E:\yt-whisper'  # Change this if needed.
+.\scripts\setup-windows.ps1 -DataRoot $env:YTW_DATA_DIR
+```
+
+The script expects Conda at `~/miniconda3/Scripts/conda.exe`. If yours is elsewhere,
+pass `-CondaExecutable` with its actual path; see the
+[installation guide](docs/installation.md#windows-nvidia-and-conda).
+It adds the environment to PATH for the current PowerShell session.
+
+Check the installation, then open the UI:
+
+```powershell
 yt_whisper --doctor
 yt_whisper_ui
 ```
 
-The base install `pip install -e .` provides the CLI. `ui`, `thai` and `dev` are optional extras. Transformers is imported only when Thonburian is selected.
+### CPU, Linux, macOS, or your own environment
 
-## Validation
+Use the [manual installation guide](docs/installation.md#manual-installation).
+It includes Windows CPU and Linux/macOS commands, storage configuration, and
+optional dependencies. The Windows CUDA lock file is specific to that environment.
 
-```powershell
-$env:TEMP = 'E:\yt-whisper\tmp'
-$env:TMP = $env:TEMP
-$env:YTW_DATA_DIR = 'E:\yt-whisper'
-& 'E:\yt-whisper\envs\py312\python.exe' -m pip check
-& 'E:\yt-whisper\envs\py312\python.exe' -m pytest -q
+## Try it
+
+### Browser UI
+
+Run `yt_whisper_ui` in the installed environment. Open the localhost address
+printed in the terminal, normally **http://127.0.0.1:7860**.
+
+1. Choose **File** and upload a short audio/video file, or choose **URL** and paste a video URL.
+2. Start with `base` to check the installation; choose the spoken language or Auto.
+3. Click **Transcribe**. Read the text and download the selected output formats.
+
+For later Windows sessions, `ytwhisper_ui.bat` opens
+`<data-root>/envs/py312/python.exe`. If you chose a custom data folder, set
+`YTW_DATA_DIR` to the same folder before launching it. The
+[installation guide](docs/installation.md#launch-again) has exact commands.
+The UI listens locally and does not create a public sharing link.
+
+### Command line
+
+These commands use the installed environment. Replace `audio.wav` with your file:
+
+```shell
+yt_whisper "audio.wav" --model base --language Auto --format all
+yt_whisper "audio.wav" --model turbo --language ja --format all
+yt_whisper "https://www.youtube.com/watch?v=VIDEO_ID" --model turbo --language Auto
 ```
 
-Regression tests cover input preservation, download cleanup, playlist rejection, duplicate output titles, settings, Auto language, CPU fallback, model reuse, Turbo translation and UI creation without importing the Thai backend. They do not download model weights.
+The first command creates all six output formats and prints their paths.
+The CLI otherwise defaults to VTT. Use `--device cpu` to choose CPU execution,
+or `--output_dir` to choose where transcripts are saved.
+
+See the [usage guide](docs/usage.md) for model choices, prompts, timestamps,
+clip ranges, temperature settings and benchmarks.
+
+### JSON tool
+
+Call the tool from a script without starting the UI or an HTTP server:
+
+```shell
+yt_whisper_tool --request request.json --response response.json
+```
+
+Start with [examples/tool-request.json](examples/tool-request.json), then change
+`audio_path` and the time ranges to match your own file. Relative audio paths
+resolve against the request file's directory.
+
+The versioned response contains text, segments, word timestamps when enabled,
+model/settings information and status/errors. Multiple named ranges share one model
+within a request. stdout is UTF-8 JSON; progress goes to stderr.
+
+Read the [JSON interface contract and Python caller example](docs/tool-interface.md)
+before integrating. In particular, retain completed results if a later range fails.
+
+## Where files go
+
+Set `YTW_DATA_DIR` before running the app to choose the data folder.
+
+| Data | Location under that folder |
+| --- | --- |
+| OpenAI Whisper weights | `models/whisper/` |
+| Local Thonburian weights, if supplied | `models/thonburian/` |
+| Model/package caches | `cache/` |
+| Downloaded audio and upload/range temporary files | `tmp/` |
+| Transcripts | `outputs/<title>-<unique-id>/` |
+| UI preferences | `config/user_config.json` |
+
+Windows defaults to `E:\yt-whisper`; Linux/macOS default to
+`~/.local/share/yt-whisper`. **E: is not required.** Configure another location
+before starting if that drive is unavailable. The installation guide also explains
+how to route installation caches and temporary files to the chosen drive.
+
+Model weights and transcripts are not included in the repository. Local inputs are
+not overwritten; repeated jobs get separate output folders. Once the selected
+model is cached, local-file transcription can run offline.
+
+## Important limits
+
+- `translate` means **translate speech into English**, not into an arbitrary target language. Turbo does not support that task.
+- Transcripts and word timings need review; a successful run is not a guarantee of accuracy.
+- The JSON tool returns `speaker: null`; this app does not identify speakers.
+- Thonburian can produce coarse segment timing; inspect it before using the output as subtitles.
+- The URL path accepts a single video, not a playlist. Site restrictions and availability still apply.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| `yt_whisper` or `yt_whisper_ui` not found | Use the installed environment. See [launch again](docs/installation.md#launch-again) for explicit Python paths. |
+| Missing environment when opening the batch file | Complete installation and use the same `YTW_DATA_DIR` as during setup. |
+| Storage drive unavailable | Set `YTW_DATA_DIR` to an existing drive before running. |
+| FFmpeg/ffprobe or Node missing | Install the required program and ensure its executable is on PATH. Node is needed only for URLs. |
+| GPU unavailable or out of memory | Run `yt_whisper --doctor`; try a smaller model or `--device cpu`. |
+
+## Development
+
+Run tests, build a wheel and reproduce benchmarks using the
+[development instructions](docs/usage.md#development).
+Dependencies live in `pyproject.toml`; CI is configured for Windows/Linux with
+Python 3.12 and CPU PyTorch. CUDA and actual model recognition require separate
+integration checks.
 
 ## License
 
 MIT. Originally forked from [m1guelpf/yt-whisper](https://github.com/m1guelpf/yt-whisper).
-
-## Advanced transcription and evaluation
-
-CLI and UI now expose prompt context, repeating the prompt, word timestamps,
-previous-text conditioning, suspected-hallucination silence filtering, clip ranges,
-beam size and temperature/fallback sequences. The UI hides these controls for
-Thonburian, which uses separate backend settings. Explicit unsupported CLI options
-with Thonburian are rejected.
-
-- Leave temperature empty to retain Whisper's default fallback sequence.
-- Silence filtering requires word timestamps and a positive threshold in seconds.
-- Repeating the initial prompt requires a non-empty prompt.
-- Clip ranges use seconds: `10,30,45,60`, or `10` to process from 10 seconds to the end.
-- Beam search is used at temperature 0; a sequence containing only nonzero temperatures is rejected if a beam size is given.
-- JSON output records effective decoding options for reproducibility.
-
-Example:
-
-```powershell
-& $py -m yt_whisper.cli 'D:\audio\example.wav' --model turbo --language th --initial-prompt 'ชื่อคน ศัพท์เฉพาะ' --carry-initial-prompt --word-timestamps --no-condition-on-previous-text --hallucination-silence-threshold 2 --clip-timestamps '10,40' --beam-size 5 --temperature '0,0.2,0.4' --format all
-```
-
-`--format all` includes TXT, JSON, SRT, VTT, TSV and JSONL. The UI lets you select formats.
-TSV timestamps are integer milliseconds. JSONL writes one complete segment per line,
-including word timestamps when enabled, using this app's writer; it does not require
-Whisper main.
-
-To reproduce a benchmark (dev extra required):
-
-```powershell
-& $py scripts/benchmark.py --audio 'E:\audio\example.wav' --model turbo --output 'E:\yt-whisper\benchmarks\rerun.json'
-```
-
-Pass `--reference PATH` for character error rate (CER). Only whitespace is removed
-from both reference and hypothesis; punctuation/spelling otherwise remain unchanged.
-Lower CER is better. Without a verified reference, the script reports performance
-only. It records model-load time separately from inference, sampled peak process
-RAM and peak CUDA allocation. Single runs on a desktop are not controlled hardware
-benchmarks.
-
-`.github/workflows/tests.yml` runs tests and wheel building on Windows and Linux
-with Python 3.12 and CPU PyTorch. The workflow runs after the code is pushed; adding
-the file locally does not mean a GitHub run has passed.
-
-### Reproducible comparisons
-
-For reproducible comparisons, specify `--beam-size 5 --temperature 0`. The
-benchmark uses seed 0 by default (`--seed` overrides it), records audio/reference
-hashes, and can load a separate pinned Whisper checkout with `--whisper-source`.
-CUDA results can still vary across hardware/software versions. Evaluate several
-representative clips with verified references before choosing model settings.
-
-## Use from another workflow
-
-The versioned [JSON tool interface](docs/tool-interface.md) accepts local audio and
-multiple named time ranges in one request, reuses one model, and returns original-file
-timestamps with machine-readable status/errors. It runs as a subprocess without
-starting a server. Example request: [examples/tool-request.json](examples/tool-request.json).
-
-```powershell
-& 'E:\yt-whisper\envs\py312\python.exe' -m yt_whisper.tool --request 'E:\jobs\request.json' --response 'E:\jobs\response.json'
-```
-
-stdout is UTF-8 JSON; diagnostics go to stderr. Keep completed results even when a
-later range fails. The caller owns transcript comparison and editorial decisions.
-For Japanese performance tests, the benchmark also accepts `--language ja`.
