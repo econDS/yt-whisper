@@ -1,10 +1,5 @@
-# load user config
-import json
+"""Compatibility import for scripts using the old settings module."""
+from yt_whisper.storage import configure_storage
+from yt_whisper.config import load_config
 
-with open('user_config.json', 'r') as f:
-    user_data = json.load(f)
-
-user_config = {
-    'model': user_data['model'],
-    'language': user_data['language']
-}
+user_config = load_config(configure_storage())

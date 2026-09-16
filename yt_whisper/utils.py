@@ -1,6 +1,4 @@
 from typing import Iterator, TextIO
-import os
-import subprocess
 
 
 def str2bool(string):
@@ -48,6 +46,7 @@ def break_line(line: str, length: int):
 
 
 def process_segment(segment: dict, line_length: int = 0):
+    segment = dict(segment)
     segment["text"] = segment["text"].strip()
     if line_length > 0 and len(segment["text"]) > line_length:
         # break at N characters as per Netflix guidelines
@@ -85,14 +84,3 @@ def write_srt(transcript: Iterator[dict], file: TextIO, line_length: int = 0):
 
 def slugify(title):
     return "".join(c if c.isalnum() else "_" for c in title).rstrip("_")
-
-
-def convert_video_to_audio_ffmpeg(video_file, output_ext="mp3"):
-    """Converts video to audio directly using `ffmpeg` command
-    with the help of subprocess module"""
-    filename, ext = os.path.splitext(video_file)
-    output_filename = f"{filename}.{output_ext}"
-    subprocess.call(["ffmpeg", "-y", "-i", video_file, output_filename],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.STDOUT)
-    return output_filename

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "request_id": "review-001",
+  "audio_path": "audio.flac",
+  "model": "turbo",
+  "language": "ja",
+  "task": "transcribe",
+  "device": "auto",
+  "seed": 0,
+  "options": {
+    "beam_size": 5,
+    "temperature": 0,
+    "word_timestamps": true
+  },
+  "ranges": [
+    {
+      "id": "check-a",
+      "start": 450,
+      "end": 480
+    },
+    {
+      "id": "check-b",
+      "start": 930,
+      "end": 960
+    }
+  ]
+}
