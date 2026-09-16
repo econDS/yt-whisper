@@ -74,13 +74,14 @@ def validate_request(raw, base_dir):
     if type(seed) is not int or not 0 <= seed < 2**32:
         invalid("seed must be an integer from 0 to 4294967295.")
     options = raw.get("options", {})
-    fields(options, set(DEFAULTS) - {"clip_timestamps"}, "options")
+    fields(options, (set(DEFAULTS) - {"clip_timestamps"}) | {"preset"}, "options")
     for key in ("word_timestamps", "carry_initial_prompt", "condition_on_previous_text"):
         if key in options and type(options[key]) is not bool:
             invalid(f"options.{key} must be a boolean.")
     if "initial_prompt" in options and options["initial_prompt"] is not None and not isinstance(options["initial_prompt"], str):
         invalid("options.initial_prompt must be a string or null.")
-    for key in ("beam_size", "hallucination_silence_threshold"):
+    for key in ("beam_size", "best_of", "hallucination_silence_threshold",
+                "compression_ratio_threshold", "logprob_threshold", "no_speech_threshold"):
         if options.get(key) is not None:
             number(options[key], f"options.{key}")
     temperature = options.get("temperature")

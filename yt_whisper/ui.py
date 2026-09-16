@@ -10,8 +10,8 @@ def build_demo():
     from .audio import prepare_audio
     from .config import load_config, save_config
     from .engine import THAI_MODEL, Transcriber, normalize_language
-    from .options import decoding_options
-    from .results import save_result
+    from .options import decoding_options, optional_float
+    from .results import save_result, subtitle_options
 
     config = load_config(storage)
     models = whisper.available_models() + [THAI_MODEL]
@@ -25,7 +25,10 @@ def build_demo():
     def transcribe(source, model, language, task, device, initial_prompt="", word_timestamps=False,
                    carry_initial_prompt=False, condition_on_previous_text=True,
                    silence_threshold=None, clip_timestamps="0", beam_size=None, temperature="",
-                   output_formats=None):
+                   output_formats=None, preset="default", best_of=None,
+                   compression_ratio_threshold="", logprob_threshold="", no_speech_threshold="",
+                   highlight_words=False, max_line_width=None, max_line_count=None,
+                   max_words_per_line=None):
         if not source:
             raise gr.Error("Choose a file or enter a video URL.")
         try:
@@ -36,13 +39,31 @@ def build_demo():
                 hallucination_silence_threshold=silence_threshold,
                 clip_timestamps=clip_timestamps, beam_size=beam_size, temperature=temperature,
             )
+            if model != THAI_MODEL:
+                # Empty UI fields inherit the preset; "none" explicitly disables thresholds.
+                options["preset"] = preset
+                if beam_size is None:
+                    options.pop("beam_size")
+                if temperature in ("", None):
+                    options.pop("temperature")
+                if best_of is not None:
+                    options["best_of"] = best_of
+                for key, value in (
+                    ("compression_ratio_threshold", compression_ratio_threshold),
+                    ("logprob_threshold", logprob_threshold),
+                    ("no_speech_threshold", no_speech_threshold),
+                ):
+                    if value is not None and str(value).strip():
+                        options[key] = optional_float(value)
             options = decoding_options(model, **options)
+            subtitles = {} if model == THAI_MODEL else subtitle_options(
+                word_timestamps, highlight_words, max_line_width, max_line_count, max_words_per_line)
             formats = ["txt", "json", "srt", "vtt"] if output_formats is None else output_formats
             if not formats:
                 raise ValueError("Select at least one output format.")
             with prepare_audio(source, storage) as audio:
                 result = engine.transcribe(audio.path, model, language, task, device, **dict(options, verbose=False))
-                files = save_result(result, audio, storage.outputs, formats)
+                files = save_result(result, audio, storage.outputs, formats, subtitles=subtitles)
             save_config(storage, model, language)
             return result["text"].strip(), files
         except Exception as exc:
@@ -63,6 +84,10 @@ def build_demo():
                     "Large-v3 needs more memory. Thonburian uses its own Thai transcription settings.")
         with gr.Accordion("Transcription options — OpenAI Whisper", open=False,
                           visible=selected != THAI_MODEL) as advanced:
+            preset = gr.Dropdown(
+                [("Current defaults", "default"), ("Official Whisper CLI decoding", "official-cli")],
+                value="default", label="Decoding preset",
+                info="Official: beam 5, best-of 5, temperature 0,0.2,0.4,0.6,0.8,1. Filled fields override it.")
             prompt = gr.Textbox(label="Names, terms and context", placeholder="Spellings or vocabulary to help recognition")
             with gr.Row():
                 words = gr.Checkbox(label="Word timestamps", value=False)
@@ -78,7 +103,25 @@ def build_demo():
                 beam = gr.Number(label="Beam size", value=None, precision=0,
                                  info="Positive integer; used only at temperature 0.")
                 temperature = gr.Textbox(label="Temperature / fallback sequence", value="",
-                                         info="0–1, e.g. 0,0.2,0.4. Empty uses Whisper defaults.")
+                                         info="0–1, e.g. 0,0.2,0.4. Empty inherits the preset; 0 disables fallback.")
+            with gr.Row():
+                best_of = gr.Number(label="Best of", value=None, precision=0,
+                                    info="Candidates at nonzero temperatures; empty inherits the preset.")
+                compression = gr.Textbox(label="Compression ratio threshold", value="",
+                                         info="Empty: 2.4. Type none to disable repetition detection.")
+                logprob = gr.Textbox(label="Log probability threshold", value="",
+                                     info="Empty: -1.0. Type none to disable low-confidence fallback.")
+                no_speech = gr.Textbox(label="No speech threshold", value="",
+                                       info="Empty: 0.6. Type none to disable silence skipping.")
+            with gr.Accordion("Subtitle layout (SRT/VTT)", open=False):
+                gr.Markdown("Enable word timestamps above. Layout affects subtitle files only.")
+                highlight = gr.Checkbox(label="Highlight each spoken word", value=False)
+                with gr.Row():
+                    line_width = gr.Number(label="Maximum characters per line", value=None, precision=0)
+                    line_count = gr.Number(label="Maximum lines per cue", value=None, precision=0,
+                                           info="Requires maximum characters per line.")
+                    words_per_line = gr.Number(label="Maximum words per line", value=None, precision=0,
+                                               info="Use instead of maximum characters per line.")
         model.change(lambda value: gr.update(visible=value != THAI_MODEL), model, advanced, api_name=False)
         formats = gr.CheckboxGroup(["txt", "json", "srt", "vtt", "tsv", "jsonl"],
                                    value=["txt", "json", "srt", "vtt"], label="Output formats")
@@ -90,7 +133,8 @@ def build_demo():
             file_button = gr.Button("Transcribe file", variant="primary")
         output = gr.Textbox(label="Transcription", lines=12)
         downloads = gr.File(label="Download transcripts", file_count="multiple", interactive=False)
-        settings = [model, language_input, task, device, prompt, words, carry, previous, silence, clips, beam, temperature, formats]
+        settings = [model, language_input, task, device, prompt, words, carry, previous, silence, clips, beam, temperature, formats,
+                    preset, best_of, compression, logprob, no_speech, highlight, line_width, line_count, words_per_line]
         for button, source, api in ((url_button, url, "transcribe_url"), (file_button, upload, "transcribe_file")):
             button.click(transcribe, [source] + settings, [output, downloads],
                          concurrency_limit=1, concurrency_id="transcription", api_name=api)

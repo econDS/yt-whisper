@@ -63,6 +63,30 @@ command works with the existing editable installation. Both work from any direct
 | options | Existing decoding options, excluding clip_timestamps and verbose. Ranges control slicing. Boolean options must be JSON booleans. Thonburian accepts only its supported defaults. |
 | ranges | Optional non-empty list of unique id/start/end objects. Omit or use null for one full-file range with id full. Units are seconds; require 0 <= start < end <= source duration. |
 
+Optional decoding controls (additive to schema version 1):
+
+```json
+"options": {
+  "preset": "official-cli",
+  "beam_size": 3,
+  "no_speech_threshold": null,
+  "word_timestamps": true
+}
+```
+
+The preset sets beam size 5, best-of 5 and temperature fallback
+0,0.2,0.4,0.6,0.8,1. Explicit fields override it. Omit `preset` or use `default`
+to retain existing behavior. A numeric `temperature: 0` disables fallback.
+`best_of` is ignored at temperature 0. `beam_size: null` / `best_of: null`
+use the upstream unset search setting, even when a preset was selected.
+
+Threshold fields are `compression_ratio_threshold` (positive, default 2.4),
+`logprob_threshold` (finite, default -1.0), and `no_speech_threshold`
+(0 through 1, default 0.6). Omit to retain defaults; JSON `null` disables the
+individual threshold. Responses record resolved values in `configuration.options`,
+including disabled thresholds. The preset name is resolved away before inference.
+Subtitle layout options belong to CLI/UI exports and are not accepted here.
+
 All ranges are validated before model loading. Ranges may overlap and may be in
 any order; results preserve request order. They are **independent transcriptions**:
 no previous text crosses range boundaries, and overlapping text is not deduplicated.

@@ -65,6 +65,11 @@ for Thonburian; unsupported explicit CLI settings are rejected for that backend.
 | --no-condition-on-previous-text | Disable previous-text context; useful to try if phrases repeat. |
 | --hallucination-silence-threshold | Positive silence threshold in seconds; requires word timestamps. |
 | --clip-timestamps | Ranges in seconds, such as 10,30,45,60; a final start runs to the end. |
+| --preset | default (existing behavior) or official-cli decoding settings. |
+| --best-of | Positive candidate count at nonzero temperatures; ignored at temperature 0. |
+| --compression-ratio-threshold | Repetition fallback threshold, default 2.4; none disables it. |
+| --logprob-threshold | Low-confidence fallback threshold, default -1.0; none disables it. |
+| --no-speech-threshold | Silence probability threshold from 0 to 1, default 0.6; none disables it. |
 | --beam-size | Positive integer; beam search applies at temperature 0. |
 | --temperature | A value from 0 to 1, or a comma-separated fallback sequence. |
 
@@ -74,6 +79,50 @@ a temperature sequence containing no zero is rejected.
 ```shell
 yt_whisper "audio.wav" --model turbo --language ja --word-timestamps --clip-timestamps "10,40" --beam-size 5 --temperature 0 --format all
 ```
+
+### Decoding preset and thresholds
+
+`--preset official-cli` sets beam size 5, best-of 5, and temperature fallback
+0,0.2,0.4,0.6,0.8,1, matching the official Whisper v20250625 CLI decoding defaults.
+Explicit values override the preset. It does not change the selected model,
+output formats, device or verbosity. Existing commands keep their decoding defaults.
+
+`--temperature 0` means a single temperature and disables fallback in this app,
+including with the preset. Best-of is then ignored. Unlike the official CLI,
+this app does not implicitly expand a supplied temperature; supply the full sequence.
+More candidates may improve some clips but require more time and memory.
+
+Thresholds control fallback and silence decisions; they do not certify accuracy.
+Whisper skips a segment when its no-speech probability exceeds the threshold,
+unless its average log probability exceeds the logprob threshold. Use representative
+labeled audio to compare settings before applying them to a full collection.
+
+In the UI, empty fields inherit preset/default values. Type `none` in a threshold
+field to disable that check. In the JSON tool, use JSON `null` instead.
+
+```shell
+yt_whisper "audio.wav" --model turbo --language ja --preset official-cli --format all
+yt_whisper "audio.wav" --preset official-cli --temperature 0 --no-speech-threshold none
+```
+
+### Word-based subtitles
+
+With `--word-timestamps`, SRT/VTT can use the official Whisper subtitle writer:
+
+- `--max-line-width 42 --max-line-count 2`: wrap into up to two lines per cue.
+- `--max-words-per-line 8`: an alternative to character-based wrapping.
+- `--highlight-words`: underline each word during its estimated timing.
+
+```shell
+yt_whisper "audio.wav" --model turbo --word-timestamps --max-line-width 42 --max-line-count 2 --highlight-words --format all
+```
+
+These options affect SRT/VTT only; JSON, JSONL, TSV and TXT preserve transcription
+content and timings. Without layout options the existing segment-based subtitle
+writer remains in use. Do not combine these options with `--break-lines`.
+A line count requires a line width; choose either word count or character width.
+A single long word is not split, and "word" units depend on Whisper's language
+alignment, so a width limit is not a guarantee for every language.
 
 Other options include `--verbose True|False` and `--break-lines`.
 Run `yt_whisper --help` for the full CLI argument list.

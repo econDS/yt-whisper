@@ -64,3 +64,86 @@ def test_cli_rejects_invalid_options_before_fetch(monkeypatch):
         main(["https://example.org/video", "--hallucination-silence-threshold", "2"])
     assert exc.value.code == 1
     fetch.assert_not_called()
+
+
+def test_preset_overrides_survive_engine_revalidation():
+    opts = decoding_options("base", preset="official-cli", beam_size=3,
+                            no_speech_threshold=None, temperature=0)
+    assert opts["beam_size"] == 3 and opts["best_of"] == 5
+    assert opts["temperature"] == (0,)
+    assert opts["no_speech_threshold"] is None
+    assert decoding_options("base", **opts) == opts
+    fallback = decoding_options("base", preset="official-cli")
+    assert fallback["temperature"] == (0, .2, .4, .6, .8, 1)
+    assert fallback["beam_size"] == fallback["best_of"] == 5
+    assert "best_of" not in decoding_options("base")
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"best_of": 0}, {"best_of": True}, {"best_of": 1.5},
+    {"no_speech_threshold": 1.1}, {"no_speech_threshold": True},
+    {"logprob_threshold": float("nan")}, {"compression_ratio_threshold": 0},
+    {"preset": "missing"}, {"preset": []},
+])
+def test_new_options_reject_invalid_values(kwargs):
+    with pytest.raises(ValueError):
+        decoding_options("base", **kwargs)
+
+
+def test_thai_rejects_preset_and_disabled_threshold():
+    for opts in ({"preset": "official-cli"}, {"no_speech_threshold": None}):
+        with pytest.raises(ValueError, match="OpenAI"):
+            decoding_options("Thai_Thonburian", **opts)
+
+
+def test_word_subtitles_preserve_json_and_original_timing(tmp_path):
+    import copy
+    from yt_whisper.results import subtitle_options
+    result = {"text": "One two three", "segments": [{
+        "start": 0, "end": 4, "text": "One two three",
+        "words": [{"word": " One", "start": .5, "end": 1},
+                  {"word": " two", "start": 1.2, "end": 2},
+                  {"word": " three", "start": 2.2, "end": 3}],
+    }]}
+    original = copy.deepcopy(result)
+    files = save_result(result, AudioSource(Path("a"), "title", "id", "a"), tmp_path,
+                        ("srt", "vtt", "json"),
+                        subtitles=subtitle_options(True, True, max_words_per_line=1))
+    srt, vtt = [Path(p).read_text(encoding="utf-8") for p in files[:2]]
+    assert "00:00:00,500 --> 00:00:01,000" in srt
+    assert "<u>One</u>" in srt and "<u>three</u>" in vtt
+    assert srt.count("-->") == 3
+    assert json.loads(Path(files[2]).read_text(encoding="utf-8"))["segments"] == original["segments"]
+    assert result == original
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"word_timestamps": False, "highlight_words": True},
+    {"word_timestamps": True, "max_line_count": 2},
+    {"word_timestamps": True, "max_line_width": 20, "max_words_per_line": 5},
+    {"word_timestamps": True, "max_line_width": float("inf")},
+    {"word_timestamps": True, "max_line_width": 20, "line_length": 20},
+])
+def test_invalid_subtitle_settings(kwargs):
+    from yt_whisper.results import subtitle_options
+    with pytest.raises(ValueError):
+        subtitle_options(**kwargs)
+
+
+def test_cli_new_settings_fail_before_fetch(monkeypatch):
+    from unittest.mock import Mock
+    from yt_whisper.cli import main
+    fetch = Mock()
+    monkeypatch.setattr("yt_whisper.audio.prepare_audio", fetch)
+    for flags in (["--highlight-words"], ["--no-speech-threshold", "2"]):
+        with pytest.raises(SystemExit) as exc:
+            main(["https://example.org/video"] + flags)
+        assert exc.value.code == 1
+    fetch.assert_not_called()
+
+
+def test_word_subtitles_allow_empty_silence_segments(tmp_path):
+    result = {"text": "", "segments": [{"start": 0, "end": 1, "text": "", "words": []}]}
+    files = save_result(result, AudioSource(Path("a"), "title", "id", "a"), tmp_path,
+                        ("srt",), subtitles={"highlight_words": True})
+    assert Path(files[0]).read_text(encoding="utf-8") == ""

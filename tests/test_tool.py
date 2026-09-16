@@ -194,3 +194,18 @@ def test_omitted_ranges_transcribes_full_source_once(setup_tool, capsys):
     assert len(result) == 1 and result[0]["id"] == "full"
     assert (result[0]["start"], result[0]["end"]) == (0, 60)
     assert len(calls) == 1
+
+
+def test_preset_and_null_threshold_reach_each_range(setup_tool, capsys):
+    request, run, clips, calls, *_ = setup_tool
+    request["options"] = {"preset": "official-cli", "beam_size": 3,
+                          "no_speech_threshold": None, "word_timestamps": True}
+    assert run() == 0
+    response = json.loads(capsys.readouterr().out)
+    opts = response["configuration"]["options"]
+    assert opts["beam_size"] == 3 and opts["best_of"] == 5
+    assert opts["no_speech_threshold"] is None
+    assert opts["temperature"] == [0, .2, .4, .6, .8, 1]
+    assert len(calls) == 2
+    assert all(call[-1]["no_speech_threshold"] is None for call in calls)
+    assert response["results"][1]["segments"][0]["start"] == 20.2
