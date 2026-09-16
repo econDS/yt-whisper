@@ -1,5 +1,6 @@
 """Validate decoding options identically for CLI, UI and direct callers."""
 import math
+from .models import supports_openai_options
 
 DEFAULTS = {
     "initial_prompt": None, "carry_initial_prompt": False,
@@ -41,7 +42,7 @@ def decoding_options(model_name, preset="default", **values):
         raise ValueError(f"Unknown decoding options: {', '.join(sorted(unknown))}")
     if not isinstance(preset, str) or preset not in PRESETS:
         raise ValueError("Preset must be default or official-cli.")
-    if model_name == "Thai_Thonburian" and preset != "default":
+    if not supports_openai_options(model_name) and preset != "default":
         raise ValueError("Decoding presets are only supported by OpenAI Whisper.")
     options = dict(DEFAULTS, **PRESETS[preset])
     options.update(values)
@@ -90,7 +91,7 @@ def decoding_options(model_name, preset="default", **values):
         options["hallucination_silence_threshold"] = float(threshold)
     if options["carry_initial_prompt"] and not options["initial_prompt"]:
         raise ValueError("Repeat prompt requires an initial prompt.")
-    if model_name == "Thai_Thonburian":
+    if not supports_openai_options(model_name):
         changed = [key for key, default in DEFAULTS.items() if options[key] != default]
         if changed:
             raise ValueError("These options are only supported by OpenAI Whisper: " + ", ".join(changed))

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import warnings
+from .models import canonical_model_id
 
 DEFAULTS = {"model": "base", "language": "Auto"}
 
@@ -15,7 +16,7 @@ def load_config(storage):
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("Expected a JSON object")
-        return {"model": data.get("model") or "base", "language": data.get("language") or "Auto"}
+        return {"model": canonical_model_id(data.get("model") or "base"), "language": data.get("language") or "Auto"}
     except FileNotFoundError:
         return DEFAULTS.copy()
     except (OSError, ValueError) as exc:
@@ -28,7 +29,7 @@ def save_config(storage, model, language):
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=storage.config.parent,
                                      suffix=".json", delete=False) as handle:
         temporary = Path(handle.name)
-        json.dump({"model": model, "language": language or "Auto"}, handle, ensure_ascii=False)
+        json.dump({"model": canonical_model_id(model), "language": language or "Auto"}, handle, ensure_ascii=False)
     try:
         temporary.replace(storage.config)
     finally:

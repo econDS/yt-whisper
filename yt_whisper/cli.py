@@ -27,10 +27,10 @@ def doctor(storage):
 
 def main(argv=None):
     storage = configure_storage()
-    import whisper
     from yt_dlp.utils import DownloadError
     from .audio import prepare_audio
-    from .engine import THAI_MODEL, Transcriber
+    from .engine import Transcriber, validate_selection
+    from .models import model_ids
     from .results import save_result, subtitle_options
     from .options import decoding_options, optional_float, PRESETS
     from .utils import str2bool
@@ -38,7 +38,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Transcribe audio/video files and single YouTube videos.")
     parser.add_argument("video", nargs="*", help="Local files or video URLs")
     parser.add_argument("--doctor", action="store_true", help="Report paths/dependencies without loading models")
-    parser.add_argument("--model", default="base", choices=whisper.available_models() + [THAI_MODEL])
+    parser.add_argument("--model", default="base", choices=model_ids())
     parser.add_argument("--format", default="vtt", choices=["txt", "json", "srt", "vtt", "tsv", "jsonl", "all"])
     parser.add_argument("--output_dir", "-o", default=str(storage.outputs))
     parser.add_argument("--language", default=None, help="Language name/code, or Auto")
@@ -75,6 +75,7 @@ def main(argv=None):
     engine = Transcriber(storage)
     formats = ("txt", "json", "srt", "vtt", "tsv", "jsonl") if args.format == "all" else (args.format,)
     try:
+        args.model, args.language = validate_selection(args.model, args.language, args.task)
         options = decoding_options(
             args.model, verbose=args.verbose, initial_prompt=args.initial_prompt,
             word_timestamps=args.word_timestamps, carry_initial_prompt=args.carry_initial_prompt,

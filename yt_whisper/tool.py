@@ -113,16 +113,11 @@ def validate_request(raw, base_dir):
             clean.append({"id": rid, "start": start, "end": end})
         ranges = clean
     # Import model libraries only after storage has been configured by the entry point.
-    import whisper
-    from .engine import THAI_MODEL, normalize_language
-    if model not in whisper.available_models() + [THAI_MODEL]:
-        invalid(f"Unknown model: {model}")
+    from .engine import validate_selection
     try:
-        language = normalize_language(language)
+        model, language = validate_selection(model, language, task)
     except ValueError as exc:
         invalid(str(exc))
-    if task == "translate" and model in ("turbo", "large-v3-turbo"):
-        invalid("Turbo does not support translation.")
     return {"request_id": request_id, "audio_path": audio, "model": model,
             "language": language, "task": task, "device": device, "options": validated_options,
             "ranges": ranges, "seed": seed}
@@ -255,12 +250,16 @@ def execute(request, storage, response):
                 warnings.append("empty_transcript")
             if any(s["timing_status"] != "valid" or any(w["timing_status"] != "valid" for w in s["words"]) for s in segments):
                 warnings.append("timing_needs_review")
-            if request["model"] == "Thai_Thonburian":
+            from .models import custom_model_spec
+            if custom_model_spec(request["model"]):
                 warnings.append("backend_may_use_coarse_clip_boundary_timestamps")
             target.update(status="complete", text=result["text"].strip(), segments=segments,
                           model=result["model"], language=result.get("language"), device=result["device"],
                           decoded_duration_seconds=decoded_duration, warnings=warnings,
                           elapsed_seconds=round(time.perf_counter() - began, 6))
+            for key in ("model_hf_repo", "model_source", "model_backend", "model_revision"):
+                if key in result:
+                    target[key] = result[key]
         except (Exception, KeyboardInterrupt) as exc:
             if isinstance(exc, KeyboardInterrupt):
                 exc = ToolError("interrupted", "Transcription interrupted.")

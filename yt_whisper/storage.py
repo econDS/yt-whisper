@@ -21,6 +21,17 @@ class Storage:
     def thai_model(self):
         return self.root / "models/thonburian"
 
+    def thonburian_source(self, spec):
+        """Keep the legacy directory/override exclusive to the Medium model."""
+        override = os.environ.get(spec.environment_variable)
+        if not override and "Thai_Thonburian" in spec.aliases:
+            override = os.environ.get("YTW_THAI_MODEL")
+        if override:
+            path = Path(override).expanduser()
+            return str(path.resolve()) if path.is_dir() else override
+        directory = self.root / "models" / spec.local_directory
+        return str(directory.resolve()) if (directory / "config.json").is_file() else spec.hf_repo
+
     @property
     def outputs(self):
         return self.root / "outputs"

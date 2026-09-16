@@ -112,11 +112,15 @@ With the chosen environment's Python, from the repository:
 | --- | --- |
 | CLI and JSON tool | `python -m pip install -e .` |
 | Browser UI | `python -m pip install -e ".[ui]"` |
-| UI and Thonburian Thai model | `python -m pip install -e ".[ui,thai]"` |
+| UI and all three Thonburian Thai models | `python -m pip install -e ".[ui,thai]"` |
 | Tests, builds and benchmarking | `python -m pip install -e ".[ui,thai,dev]"` |
 
 On Windows with an explicit `$py` path, replace `python` with `& $py`.
 Thai dependencies are loaded only when Thonburian is selected.
+For CLI/tool Thai support alone, use `python -m pip install -e ".[thai]"`.
+This extra supports Medium, Large-v3 and Distilled Large-v3 with the existing
+Transformers/safetensors constraints; it does not install model weights.
+See [model choices and per-model offline directories](thonburian.md).
 
 ## Launch again
 

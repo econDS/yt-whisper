@@ -2,6 +2,7 @@
 import argparse
 import json
 import hashlib
+import importlib.metadata
 import subprocess
 from pathlib import Path
 import sys
@@ -31,9 +32,18 @@ import whisper
 import numpy as np
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
-from yt_whisper.engine import Transcriber
+from yt_whisper.engine import Transcriber, resolve_device, validate_selection
+from yt_whisper.models import custom_model_spec
+from yt_whisper.options import decoding_options
 from yt_whisper.results import save_result
 from yt_whisper.audio import AudioSource
+
+requested_model, requested_device = args.model, args.device
+args.model, args.language = validate_selection(args.model, args.language)
+args.device = resolve_device(args.device)
+options = decoding_options(args.model, verbose=False, beam_size=args.beam_size, temperature=args.temperature)
+if args.standard_initialization and custom_model_spec(args.model):
+    parser.error("--standard-initialization applies only to official OpenAI Whisper models.")
 
 process = psutil.Process()
 peak_rss = [process.memory_info().rss]
@@ -63,15 +73,16 @@ if args.device == "cuda":
     torch.cuda.synchronize()
 load_seconds = time.perf_counter() - start
 start = time.perf_counter()
-result = engine.transcribe(audio, args.model, args.language, device=args.device, verbose=False,
-                           beam_size=args.beam_size, temperature=args.temperature)
+result = engine.transcribe(audio, args.model, args.language, device=args.device, **options)
 if args.device == "cuda":
     torch.cuda.synchronize()
 infer_seconds = time.perf_counter() - start
 done.set()
 monitor.join()
 metrics = {
-    "model": args.model, "language": args.language, "device": args.device, "audio_seconds": duration,
+    "model": result["model"], "requested_model": requested_model,
+    "language": result.get("language", args.language), "device": result["device"],
+    "requested_device": requested_device, "audio_seconds": duration,
     "audio_path": str(audio), "audio_sha256": audio_hash,
     "standard_initialization": args.standard_initialization, "seed": args.seed,
     "load_seconds": load_seconds, "transcribe_seconds": infer_seconds,
@@ -83,6 +94,11 @@ metrics = {
     "reference_available": bool(args.reference),
     "decoding_options": result.get("decoding_options", {}),
 }
+for key in ("model_hf_repo", "model_source", "model_backend", "model_revision"):
+    if key in result:
+        metrics[key] = result[key]
+if custom_model_spec(args.model):
+    metrics["transformers_version"] = importlib.metadata.version("transformers")
 if args.reference:
     # Character error rate; whitespace removed, no Thai word segmentation required.
     def chars(text):

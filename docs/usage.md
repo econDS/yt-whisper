@@ -11,7 +11,9 @@ See [installation and launch instructions](installation.md).
 | base | Small model for checking that the installation works. |
 | small, medium, large-v3 | Multilingual models with increasing memory requirements. Evaluate on your own audio. |
 | turbo / large-v3-turbo | Faster transcription option to compare with large-v3; translation is not supported. |
-| Thai_Thonburian | Optional Thai backend through Transformers; install the thai extra. |
+| thonburian-medium | Existing Thonburian Medium Thai baseline; legacy Thai_Thonburian remains an alias. |
+| thonburian-large-v3 | Full Thonburian Large-v3 model for Thai ASR. |
+| thonburian-distill-large-v3 | Smaller Thai-specialized Large-v3 Turbo derivative. |
 
 The CLI defaults to base. Models download to the configured data folder when first
 selected if they are not already cached. Each running process retains one model;
@@ -19,13 +21,14 @@ switching models releases the previous one. The UI serializes transcription requ
 Separate CLI/UI/tool processes still consume memory independently.
 
 **Translate means translate speech into English.** `.en` models force English.
-Use `--language Auto` to detect the language. CUDA falls back to CPU when unavailable.
+Use `--language Auto` to detect the language with official models. For Thonburian,
+Auto resolves to Thai; explicit Thai/th also works, and other languages or translate
+are rejected before loading. CUDA falls back to CPU when unavailable.
 
-For Thonburian, the app uses a local `models/thonburian` directory when its config
-exists. Set `YTW_THAI_MODEL` to another local directory if needed. Otherwise it
-downloads `biodatlab/whisper-th-medium-combined` through the configured Hugging Face
-cache. A local model needs safetensors weights, configuration, tokenizer and feature
-extractor files; a duplicate pytorch_model.bin is not required.
+Thonburian uses the optional `.[thai]` dependencies and each checkpoint's own
+processor. Models have separate local directories and share the configured Hugging
+Face cache. The legacy `models/thonburian` directory and `YTW_THAI_MODEL` override
+continue to select Medium only. See [Thonburian models and offline setup](thonburian.md).
 Missing ending timestamps may be filled with the clip boundary; inspect subtitle timing.
 
 ## Files, URLs and outputs
@@ -53,6 +56,31 @@ only the selected video. The downloader does not automatically read browser cook
 Site restrictions and network availability can still affect downloads.
 
 ## Advanced transcription
+
+### Browser modes
+
+Simple mode uses the selected model/language with the default transcription
+settings and automatic device selection. Advanced settings are retained on screen
+when switching modes, but Simple does not apply them. Simple exports TXT, JSON,
+SRT and VTT to the configured outputs directory.
+
+Advanced mode exposes task/device, all six output formats, OpenAI decoding and
+word-based subtitle controls, plus segment wrapping (`--break-lines`). The output
+subfolder must stay inside the configured outputs directory. CLI `--output_dir`
+still allows another destination. Check setup runs the same diagnostics as
+`--doctor`, without loading model weights. Multi-file batches and terminal
+verbosity remain CLI features.
+
+Use the Copy icon in the transcript toolbar to copy text. Editing the textbox
+changes copied text only; exported files keep the original transcription. During
+processing Gradio shows stage/progress information; the final status shows total
+elapsed time including preparation, model loading/inference and export, excluding
+queue wait and browser upload. This is not the benchmark's inference-only metric.
+
+Existing Gradio API endpoints `/transcribe_file` and `/transcribe_url` retain their
+two-output `(text, files)` contract. UI events use separate endpoints ending in
+`_ui`, returning `(text, files, status)` with mode/export controls. Integrations
+should continue using the existing endpoints or the versioned JSON subprocess tool.
 
 CLI and UI expose these options for the OpenAI Whisper backend. The UI hides them
 for Thonburian; unsupported explicit CLI settings are rejected for that backend.
@@ -143,6 +171,14 @@ The example writes its report below the current working directory; choose an
 absolute `--output` path if it should be on another drive. Use `--device cpu`
 for CPU measurements. Benchmark defaults are language th and device cuda, so
 specify these explicitly for other audio or hardware.
+
+The same script accepts all three Thonburian identifiers (or their exact Hugging
+Face repository IDs) alongside `large-v3` and `turbo`. See the
+[five-model comparison example](thonburian.md#compare-on-the-same-audio).
+Reports include the canonical model ID, requested ID/device, actual device,
+Thonburian repository/source/revision when available, audio duration, real-time
+factor and paths to all transcript exports. OpenAI decoding flags are rejected
+for Thonburian; `--standard-initialization` applies only to official models.
 
 Pass `--reference reference.txt` for character error rate (CER). The script removes
 only whitespace from reference and hypothesis; spelling and punctuation remain.

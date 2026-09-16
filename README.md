@@ -5,7 +5,19 @@ Use a browser UI, a command-line interface, or a JSON subprocess tool from anoth
 application. Transcription runs locally; model weights download on first use.
 
 Outputs: **TXT, JSON, SRT, VTT, TSV and JSONL**. Supports multilingual Whisper
-models and optional Thonburian Whisper for Thai.
+models and three optional Thonburian Whisper models for Thai:
+
+| UI name | CLI / JSON model identifier | Role |
+| --- | --- | --- |
+| Thonburian Medium | `thonburian-medium` | Existing baseline, retained for compatibility and comparison. |
+| Thonburian Large-v3 | `thonburian-large-v3` | Full newer Thai Large-v3 model. |
+| Thonburian Distilled Large-v3 | `thonburian-distill-large-v3` | Smaller Thai-specialized alternative based on Large-v3 Turbo. |
+
+Install with `python -m pip install -e ".[thai]"` (or `".[ui,thai]"` for the UI).
+All three support Thai transcription: Auto resolves to Thai; other languages and
+translation are rejected. Existing `Thai_Thonburian` settings still select Medium.
+Actual speed, VRAM and accuracy depend on your hardware and audio; see the
+[Thonburian guide](docs/thonburian.md) for checkpoint IDs, offline paths and comparison commands.
 
 ## Choose how to use it
 
@@ -79,6 +91,13 @@ printed in the terminal, normally **http://127.0.0.1:7860**.
 2. Start with `base` to check the installation; choose the spoken language or Auto.
 3. Click **Transcribe**. Read the text and download the selected output formats.
 
+The UI starts in **Simple** mode: transcription, automatic device selection and
+default settings, with TXT/JSON/SRT/VTT downloads. Switch to **Advanced** for task,
+device, decoding controls, all six formats, subtitle wrapping and output subfolders.
+The transcript has a Copy button and can be edited before copying. Downloaded files
+retain the original output. Run status shows elapsed processing time, including
+model loading and saving; queue wait and browser upload are excluded.
+
 For later Windows sessions, `ytwhisper_ui.bat` opens
 `<data-root>/envs/py312/python.exe`. If you chose a custom data folder, set
 `YTW_DATA_DIR` to the same folder before launching it. The
@@ -128,7 +147,9 @@ Set `YTW_DATA_DIR` before running the app to choose the data folder.
 | Data | Location under that folder |
 | --- | --- |
 | OpenAI Whisper weights | `models/whisper/` |
-| Local Thonburian weights, if supplied | `models/thonburian/` |
+| Local Thonburian Medium weights, if supplied | `models/thonburian/` (legacy location retained) |
+| Local Thonburian Large-v3 weights, if supplied | `models/thonburian-large-v3/` |
+| Local Thonburian Distilled Large-v3 weights, if supplied | `models/thonburian-distill-large-v3/` |
 | Model/package caches | `cache/` |
 | Downloaded audio and upload/range temporary files | `tmp/` |
 | Transcripts | `outputs/<title>-<unique-id>/` |
@@ -145,7 +166,7 @@ model is cached, local-file transcription can run offline.
 
 ## Important limits
 
-- `translate` means **translate speech into English**, not into an arbitrary target language. Turbo does not support that task.
+- `translate` means **translate speech into English**, not into an arbitrary target language. Turbo and the Thai-specialized Thonburian choices do not support that task in this app.
 - Transcripts and word timings need review; a successful run is not a guarantee of accuracy.
 - The JSON tool returns `speaker: null`; this app does not identify speakers.
 - Thonburian can produce coarse segment timing; inspect it before using the output as subtitles.

@@ -55,15 +55,24 @@ command works with the existing editable installation. Both work from any direct
 | schema_version | Required integer 1. Unknown versions/fields are rejected. |
 | request_id | Optional non-empty string or null; echoed unchanged. |
 | audio_path | Required existing local audio/video file. Relative paths resolve against the request file's directory. URLs are not accepted in this interface. |
-| model | Required name from Whisper's available models, or Thai_Thonburian. |
-| language | Optional language code/name, Auto or null. Default is automatic detection. Japanese audio uses ja. |
-| task | transcribe (default) or translate into English. Turbo translation is rejected. |
+| model | Required official Whisper model name, thonburian-medium, thonburian-large-v3 or thonburian-distill-large-v3. Exact Thonburian Hugging Face IDs and legacy Thai_Thonburian are also accepted. |
+| language | Optional language code/name, Auto or null. Official models default to detection; Thonburian Auto/null resolves to th and other languages are rejected. Japanese audio uses ja with official models. |
+| task | transcribe (default) or translate into English. Turbo and Thonburian translation are rejected. |
 | device | auto (default), cpu or cuda. Existing engine CPU fallback applies; each result records the actual device. |
 | seed | Integer 0–4294967295, default 0. Reset separately for each range; not a guarantee of identical results across software/hardware versions. |
 | options | Existing decoding options, excluding clip_timestamps and verbose. Ranges control slicing. Boolean options must be JSON booleans. Thonburian accepts only its supported defaults. |
 | ranges | Optional non-empty list of unique id/start/end objects. Omit or use null for one full-file range with id full. Units are seconds; require 0 <= start < end <= source duration. |
 
-Optional decoding controls (additive to schema version 1):
+Thonburian aliases resolve to canonical IDs in configuration and results. The
+legacy `Thai_Thonburian` value selects `thonburian-medium`; stored config is read
+without rewriting it. Each successful Thonburian range also records `model_hf_repo`
+(registry checkpoint), `model_source` (actual repository or local path),
+`model_backend` and `model_revision` (Hub commit when available, otherwise null).
+The existing coarse-timing warning applies to all three variants. They support
+Thai transcription with default backend settings, not the OpenAI-specific controls
+below. See the [Thonburian guide](thonburian.md).
+
+Optional OpenAI decoding controls (additive to schema version 1):
 
 ```json
 "options": {

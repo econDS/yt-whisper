@@ -2,9 +2,46 @@ import json
 from pathlib import Path
 
 import pytest
+from yt_whisper.models import THONBURIAN_MODELS, custom_model_spec
 
 from yt_whisper import tool
 from yt_whisper.storage import Storage
+
+
+@pytest.mark.parametrize("model", [s.id for s in THONBURIAN_MODELS] + ["Thai_Thonburian"])
+def test_thai_tool_alias_metadata_and_coarse_timing(setup_tool, capsys, monkeypatch, model):
+    request, run, clips, calls, *_ = setup_tool
+    request.update(model=model, language="Auto")
+    spec = custom_model_spec(model)
+    from yt_whisper.engine import Transcriber
+    original = Transcriber.transcribe
+    def transcribe(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        result.update(model_hf_repo=spec.hf_repo, model_source=spec.hf_repo,
+                      model_backend=spec.backend, model_revision="fixture-revision")
+        return result
+    monkeypatch.setattr(Transcriber, "transcribe", transcribe)
+    assert run() == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["configuration"]["model"] == spec.id
+    assert response["configuration"]["language"] == "th"
+    for target in response["results"]:
+        assert target["model"] == spec.id and target["model_hf_repo"] == spec.hf_repo
+        assert "backend_may_use_coarse_clip_boundary_timestamps" in target["warnings"]
+    assert response["results"][1]["segments"][0]["start"] == 20.2
+    assert len(calls) == 2 and all(not clip.exists() for clip in clips)
+
+
+@pytest.mark.parametrize("spec", THONBURIAN_MODELS, ids=lambda s: s.id)
+@pytest.mark.parametrize("change", [{"task": "translate"}, {"language": "ja"}])
+def test_thai_tool_rejects_invalid_selection_before_decode(setup_tool, capsys, spec, change):
+    request, run, clips, calls, instances, *_ = setup_tool
+    request.update(model=spec.id, language="Auto")
+    request.update(change)
+    assert run() == 2
+    response = json.loads(capsys.readouterr().out)
+    assert response["error"]["code"] == "invalid_request"
+    assert not calls and not clips and not instances
 
 
 @pytest.fixture
